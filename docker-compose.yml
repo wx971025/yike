@@ -1,0 +1,27 @@
+services:
+  backend:
+    build: ./backend
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Shanghai
+      - DATABASE_URL=sqlite:////data/ebbinghaus.db
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+    volumes:
+      - db_data:/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    environment:
+      - TZ=Asia/Shanghai
+    ports:
+      - "10001:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  db_data:
