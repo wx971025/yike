@@ -58,6 +58,7 @@ export default function Dashboard() {
   const [wordOrderMode, setWordOrderMode] = useState<WordOrderMode>("shuffle");
   const [wordQueue, setWordQueue] = useState<ReviewWord[]>([]);
   const [curveItem, setCurveItem] = useState<Item | null>(null);
+  const [reviewToast, setReviewToast] = useState<string | null>(null);
   const wordSessionTotalRef = useRef(0);
 
   const groupName = (id: number | null) =>
@@ -127,11 +128,19 @@ export default function Dashboard() {
     }
   }, [dueSubTab, wordQueue.length, setFocusMode]);
 
+  useEffect(() => {
+    if (!reviewToast) return;
+    const timer = window.setTimeout(() => setReviewToast(null), 2200);
+    return () => window.clearTimeout(timer);
+  }, [reviewToast]);
+
   const itemCount = items.length;
   const wordCount = wordQueue.length;
 
   const handleCardReview = async (id: number) => {
+    const item = items.find((it) => it.id === id);
     await itemApi.review(id);
+    if (item) setReviewToast(`${item.title} 已复习`);
     setItems((prev) => prev.filter((it) => it.id !== id));
     window.dispatchEvent(new CustomEvent("app-data-changed"));
   };
@@ -154,6 +163,17 @@ export default function Dashboard() {
     setWords((prev) => prev.filter((w) => w.id !== id));
     setWordQueue((prev) => prev.filter((w) => w.id !== id));
     window.dispatchEvent(new CustomEvent("app-data-changed"));
+  };
+
+  const handleWordDefer = (id: number) => {
+    setWordQueue((prev) => {
+      const index = prev.findIndex((w) => w.id === id);
+      if (index < 0) return prev;
+      const next = [...prev];
+      const [word] = next.splice(index, 1);
+      next.push(word);
+      return next;
+    });
   };
 
   const completedItems = completed.filter((entry) => entry.kind === "item");
@@ -188,6 +208,15 @@ export default function Dashboard() {
           : undefined
       }
     >
+      {reviewToast && (
+        <div className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4">
+          <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-2.5 text-sm font-medium text-green-800 shadow-lg dark:border-green-800 dark:bg-green-950/90 dark:text-green-200">
+            <span className="mr-1.5 text-green-600 dark:text-green-400">✓</span>
+            {reviewToast}
+          </div>
+        </div>
+      )}
+
       {!focusMode && (
         <div className="mb-5">
           <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">今日复习</h1>
@@ -421,6 +450,7 @@ export default function Dashboard() {
               }
               onReviewed={handleWordReview}
               onSkip={handleWordSkip}
+              onDefer={handleWordDefer}
             />
             </div>
           )}

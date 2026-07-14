@@ -104,6 +104,21 @@ export interface WordPayload {
   in_plan?: boolean;
 }
 
+export interface DictionaryEntry {
+  word: string;
+  phonetic: string;
+  pos: string;
+  meaning: string;
+  example: string;
+  definition: string;
+  found: boolean;
+}
+
+export const dictionaryApi = {
+  lookup: (word: string) =>
+    api.get<DictionaryEntry>(`/dictionary/lookup/${encodeURIComponent(word)}`),
+};
+
 export const wordApi = {
   list: (groupId?: number | null, inPlan?: boolean | null, q?: string) =>
     api.get<Word[]>("/words", {

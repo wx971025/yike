@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { wordApi, type WordPayload } from "../api";
+import { dictionaryApi, wordApi, type WordPayload } from "../api";
 import ItemActionsMenu from "../components/ItemActionsMenu";
 import PlanMultiSelectBar, {
   MultiSelectToggleButton,
@@ -45,6 +45,64 @@ const emptyForm: WordPayload = {
 };
 
 const MEANING_COLLAPSE_THRESHOLD = 48;
+
+function BatchWordTextarea({
+  value,
+  onChange,
+  highlightedMissing,
+  disabled,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  highlightedMissing: string[];
+  disabled?: boolean;
+}) {
+  const missingSet = useMemo(
+    () => new Set(highlightedMissing.map((word) => word.toLowerCase())),
+    [highlightedMissing]
+  );
+  const lines = value.split(/\r?\n/);
+  const hasHighlights = highlightedMissing.length > 0;
+
+  return (
+    <div className="relative mb-3">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg border border-transparent px-3 py-2 font-mono text-sm leading-6 whitespace-pre-wrap break-words"
+      >
+        {lines.map((line, index) => {
+          const trimmed = line.trim();
+          const isMissing = Boolean(trimmed) && missingSet.has(trimmed.toLowerCase());
+          return (
+            <div
+              key={index}
+              className={
+                isMissing
+                  ? "text-red-600 dark:text-red-400"
+                  : "text-slate-800 dark:text-slate-100"
+              }
+            >
+              {line || "\u00a0"}
+            </div>
+          );
+        })}
+      </div>
+      <textarea
+        className={`relative w-full rounded-lg border px-3 py-2 font-mono text-sm leading-6 focus:border-blue-500 focus:outline-none disabled:opacity-60 dark:focus:border-blue-400 ${
+          hasHighlights
+            ? "border-red-300 bg-transparent text-transparent caret-slate-800 selection:bg-blue-200/60 dark:border-red-500/60 dark:caret-slate-100 dark:selection:bg-blue-500/30"
+            : "border-slate-300 bg-white text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+        }`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={8}
+        placeholder={"apple\nbanana\norange"}
+        disabled={disabled}
+        spellCheck={false}
+      />
+    </div>
+  );
+}
 
 function CollapsibleMeaning({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -110,6 +168,10 @@ export default function WordsPage() {
   const [batchStageIndex, setBatchStageIndex] = useState(0);
   const [batchSubmitting, setBatchSubmitting] = useState(false);
   const [batchError, setBatchError] = useState("");
+  const [batchMissingConfirmOpen, setBatchMissingConfirmOpen] = useState(false);
+  const [batchMissingWords, setBatchMissingWords] = useState<string[]>([]);
+  const [batchWordsToAdd, setBatchWordsToAdd] = useState<string[]>([]);
+  const [batchHighlightedMissing, setBatchHighlightedMissing] = useState<string[]>([]);
 
   const batchMemoryMode = memoryModeForGroupId(batchGroupId);
   const batchStageOptions = useMemo(
@@ -216,12 +278,35 @@ export default function WordsPage() {
     }
   };
 
+  const handleDeleteSelected = async () => {
+    if (selectedCount === 0) return;
+    if (!confirm(`确定删除选中的 ${selectedCount} 个单词？`)) return;
+    setBulkLoading(true);
+    try {
+      const targets = sortedWords.filter((word) => selectedIds.has(word.id));
+      for (const word of targets) {
+        await wordApi.remove(word.id);
+      }
+      if (targets.length > 0) {
+        await load();
+        window.dispatchEvent(new CustomEvent("app-data-changed"));
+      }
+      exitSelectMode();
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
   const openAddWords = () => {
     setBatchText("");
     setBatchError("");
     setBatchGroupId(selectedGroupId);
     setBatchJoinPlan(true);
     setBatchStageIndex(0);
+    setBatchMissingConfirmOpen(false);
+    setBatchMissingWords([]);
+    setBatchWordsToAdd([]);
+    setBatchHighlightedMissing([]);
     setBatchModalOpen(true);
   };
 
@@ -239,6 +324,73 @@ export default function WordsPage() {
       });
   };
 
+  const lookupBatchWords = async (words: string[]) => {
+    const missing: string[] = [];
+    const found: string[] = [];
+
+    for (const word of words) {
+      try {
+        const res = await dictionaryApi.lookup(word);
+        if (res.data.found && res.data.meaning.trim()) {
+          found.push(word);
+        } else {
+          missing.push(word);
+        }
+      } catch {
+        missing.push(word);
+      }
+    }
+
+    return { found, missing };
+  };
+
+  const addWordsBatch = async (wordsToAdd: string[]) => {
+    if (wordsToAdd.length === 0) {
+      setBatchError("词典均未收录这些单词，未添加任何内容");
+      return;
+    }
+
+    const failed: { word: string; reason: string }[] = [];
+    let created = 0;
+
+    for (const word of wordsToAdd) {
+      try {
+        await wordApi.create({
+          word,
+          phonetic: "",
+          pos: "",
+          meaning: "",
+          example: "",
+          group_id: batchGroupId,
+          stage_index: batchJoinPlan ? batchStageIndex : 0,
+          in_plan: batchJoinPlan,
+        });
+        created += 1;
+      } catch (err: unknown) {
+        const detail =
+          (err as { response?: { data?: { detail?: string } } })?.response?.data
+            ?.detail ?? "添加失败";
+        failed.push({
+          word,
+          reason: typeof detail === "string" ? detail : "添加失败",
+        });
+      }
+    }
+
+    if (created > 0) {
+      await load();
+      window.dispatchEvent(new CustomEvent("app-data-changed"));
+      setBatchModalOpen(false);
+      setBatchMissingConfirmOpen(false);
+    } else if (failed.length > 0) {
+      setBatchError(
+        failed.length === 1
+          ? `${failed[0].word}：${failed[0].reason}`
+          : `全部添加失败，共 ${failed.length} 个`
+      );
+    }
+  };
+
   const handleBatchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const wordsToAdd = parseBatchWords(batchText);
@@ -250,45 +402,32 @@ export default function WordsPage() {
     setBatchSubmitting(true);
     setBatchError("");
 
-    const failed: { word: string; reason: string }[] = [];
-    let created = 0;
-
     try {
-      for (const word of wordsToAdd) {
-        try {
-          await wordApi.create({
-            word,
-            phonetic: "",
-            pos: "",
-            meaning: "",
-            example: "",
-            group_id: batchGroupId,
-            stage_index: batchJoinPlan ? batchStageIndex : 0,
-            in_plan: batchJoinPlan,
-          });
-          created += 1;
-        } catch (err: unknown) {
-          const detail =
-            (err as { response?: { data?: { detail?: string } } })?.response?.data
-              ?.detail ?? "添加失败";
-          failed.push({
-            word,
-            reason: typeof detail === "string" ? detail : "添加失败",
-          });
-        }
+      const { found, missing } = await lookupBatchWords(wordsToAdd);
+
+      if (missing.length > 0) {
+        setBatchMissingWords(missing);
+        setBatchWordsToAdd(found);
+        setBatchMissingConfirmOpen(true);
+        return;
       }
 
-      if (created > 0) {
-        await load();
-        window.dispatchEvent(new CustomEvent("app-data-changed"));
-        setBatchModalOpen(false);
-      } else if (failed.length > 0) {
-        setBatchError(
-          failed.length === 1
-            ? `${failed[0].word}：${failed[0].reason}`
-            : `全部添加失败，共 ${failed.length} 个`
-        );
-      }
+      await addWordsBatch(wordsToAdd);
+    } finally {
+      setBatchSubmitting(false);
+    }
+  };
+
+  const handleBatchCancelMissing = () => {
+    setBatchMissingConfirmOpen(false);
+    setBatchHighlightedMissing(batchMissingWords);
+  };
+
+  const handleBatchContinueWithMissing = async () => {
+    setBatchSubmitting(true);
+    setBatchError("");
+    try {
+      await addWordsBatch(batchWordsToAdd);
     } finally {
       setBatchSubmitting(false);
     }
@@ -583,8 +722,53 @@ export default function WordsPage() {
         loading={bulkLoading}
         onJoin={handleJoinSelected}
         onLeave={handleLeaveSelected}
+        onDelete={handleDeleteSelected}
         onCancel={exitSelectMode}
       />
+
+      {batchMissingConfirmOpen && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl dark:bg-slate-900">
+            <h3 className="mb-2 text-base font-semibold text-slate-800 dark:text-slate-100">
+              部分单词未收录
+            </h3>
+            <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
+              以下单词词典中未收录
+              {batchWordsToAdd.length > 0
+                ? "，继续添加将只添加其余单词，未收录的将被跳过："
+                : "，继续添加将不会添加任何单词："}
+            </p>
+            <div className="mb-5 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/60">
+              {batchMissingWords.map((word) => (
+                <div
+                  key={word}
+                  className="font-mono text-sm text-slate-700 dark:text-slate-200"
+                >
+                  {word}
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleBatchCancelMissing}
+                disabled={batchSubmitting}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/60"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleBatchContinueWithMissing}
+                disabled={batchSubmitting}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {batchSubmitting ? "添加中..." : "继续添加"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {batchModalOpen && (
         <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 px-4">
@@ -606,12 +790,18 @@ export default function WordsPage() {
             <label className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">
               单词列表
             </label>
-            <textarea
-              className="mb-3 w-full rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 font-mono text-sm focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none"
+            {batchHighlightedMissing.length > 0 && (
+              <p className="mb-2 text-xs text-red-600 dark:text-red-400">
+                红色标记的单词词典未收录，请修改后重试
+              </p>
+            )}
+            <BatchWordTextarea
               value={batchText}
-              onChange={(e) => setBatchText(e.target.value)}
-              rows={8}
-              placeholder={"apple\nbanana\norange"}
+              onChange={(next) => {
+                setBatchText(next);
+                setBatchHighlightedMissing([]);
+              }}
+              highlightedMissing={batchHighlightedMissing}
               disabled={batchSubmitting}
             />
 

@@ -1,5 +1,12 @@
 /** @ 分组引用格式：@[分组名](mention:group) */
-export const MENTION_PATTERN = /@\[([^\]]+)\]\(mention:group\)/g;
+const MENTION_SOURCE = /@\[([^\]]+)\]\(mention:group\)/;
+
+function mentionRegex(): RegExp {
+  return new RegExp(MENTION_SOURCE.source, "g");
+}
+
+/** @deprecated 请使用 mentionRegex()，避免全局正则 lastIndex 污染 */
+export const MENTION_PATTERN = mentionRegex();
 
 export function formatGroupMention(groupName: string): string {
   return `@[${groupName}](mention:group)`;
@@ -7,7 +14,7 @@ export function formatGroupMention(groupName: string): string {
 
 export function extractMentionGroupNames(content: string): string[] {
   const names: string[] = [];
-  for (const match of content.matchAll(MENTION_PATTERN)) {
+  for (const match of content.matchAll(mentionRegex())) {
     const name = match[1]?.trim();
     if (name && !names.includes(name)) names.push(name);
   }

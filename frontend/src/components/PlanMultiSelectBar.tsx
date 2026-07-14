@@ -4,6 +4,7 @@ interface PlanMultiSelectBarProps {
   loading: boolean;
   onJoin: () => void;
   onLeave: () => void;
+  onDelete: () => void;
   onCancel: () => void;
 }
 
@@ -35,6 +36,7 @@ export default function PlanMultiSelectBar({
   loading,
   onJoin,
   onLeave,
+  onDelete,
   onCancel,
 }: PlanMultiSelectBarProps) {
   if (!visible) return null;
@@ -60,6 +62,14 @@ export default function PlanMultiSelectBar({
           className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 transition hover:bg-orange-100 disabled:opacity-50 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300"
         >
           {loading ? "处理中..." : "移出计划"}
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={loading || selectedCount === 0}
+          className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-50 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+        >
+          {loading ? "处理中..." : "删除"}
         </button>
         <button
           type="button"

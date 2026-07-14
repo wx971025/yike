@@ -174,6 +174,25 @@ export default function ItemsPage() {
     }
   };
 
+  const handleDeleteSelected = async () => {
+    if (selectedCount === 0) return;
+    if (!confirm(`确定删除选中的 ${selectedCount} 张卡片？`)) return;
+    setBulkLoading(true);
+    try {
+      const targets = sortedItems.filter((item) => selectedIds.has(item.id));
+      for (const item of targets) {
+        await itemApi.remove(item.id);
+      }
+      if (targets.length > 0) {
+        await load();
+        window.dispatchEvent(new CustomEvent("app-data-changed"));
+      }
+      exitSelectMode();
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
   const openCreate = () => {
     setEditingId(null);
     setFormError("");
@@ -456,6 +475,7 @@ export default function ItemsPage() {
         loading={bulkLoading}
         onJoin={handleJoinSelected}
         onLeave={handleLeaveSelected}
+        onDelete={handleDeleteSelected}
         onCancel={exitSelectMode}
       />
 

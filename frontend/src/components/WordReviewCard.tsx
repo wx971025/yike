@@ -23,6 +23,7 @@ interface WordReviewCardProps {
   onToggleWordOrder?: () => void;
   onReviewed: (id: number) => void;
   onSkip: (id: number) => void;
+  onDefer: (id: number) => void;
 }
 
 const MIN_LINE_CHARS = 6;
@@ -131,6 +132,29 @@ function FocusToolbar({
   );
 }
 
+function ShortcutHint({ keys, label }: { keys: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+        {keys}
+      </kbd>
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function FocusShortcutHints() {
+  return (
+    <div className="shrink-0 px-4 pb-1 pt-0 -mt-8 text-center">
+      <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-slate-400 dark:text-slate-500">
+        <ShortcutHint keys="Ctrl + ;" label="查看答案" />
+        <ShortcutHint keys="Ctrl + K" label="开关键盘音" />
+        <ShortcutHint keys="Ctrl + O" label="乱序顺序切换" />
+      </div>
+    </div>
+  );
+}
+
 export default function WordReviewCard({
   word,
   groupLabel,
@@ -141,13 +165,20 @@ export default function WordReviewCard({
   onToggleWordOrder,
   onReviewed,
   onSkip,
+  onDefer,
 }: WordReviewCardProps) {
   const { totalStagesForGroupId } = useGroups();
+  const {
+    keyboardSoundEnabled,
+    setKeyboardSoundEnabled,
+  } = useWordReviewUi();
   const totalStages = totalStagesForGroupId(word.group_id);
   const [input, setInput] = useState("");
   const [wrongCount, setWrongCount] = useState(0);
   const [hasError, setHasError] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
+  const [revealedAnswer, setRevealedAnswer] = useState(false);
+  const [showPhonetic, setShowPhonetic] = useState(false);
   const [visible, setVisible] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -160,6 +191,7 @@ export default function WordReviewCard({
     setWrongCount(0);
     setHasError(false);
     setIsCorrect(false);
+    setRevealedAnswer(false);
   };
 
   const clearFadeTimer = () => {
@@ -210,6 +242,13 @@ export default function WordReviewCard({
     [isCorrect, isTransitioning, word.id, onReviewed]
   );
 
+  const peeked = revealedAnswer || wrongCount >= 3;
+
+  const advanceAfterPeek = useCallback(() => {
+    if (isTransitioning || !peeked) return;
+    transitionToNext(() => onDefer(word.id));
+  }, [isTransitioning, peeked, word.id, onDefer]);
+
   useEffect(() => {
     if (isCorrect) void warmUpKeyboardSounds();
   }, [isCorrect]);
@@ -218,10 +257,12 @@ export default function WordReviewCard({
     if (isTransitioning) return;
     if (isCorrect) {
       nextButtonRef.current?.focus();
+    } else if (peeked) {
+      nextButtonRef.current?.focus();
     } else {
       inputRef.current?.focus();
     }
-  }, [word.id, isCorrect, isTransitioning, visible]);
+  }, [word.id, isCorrect, isTransitioning, visible, peeked]);
 
   useEffect(() => {
     if (!isCorrect || isTransitioning) return;
@@ -235,6 +276,55 @@ export default function WordReviewCard({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isCorrect, isTransitioning, advanceAfterCorrect]);
+
+  useEffect(() => {
+    if (!peeked || isCorrect || isTransitioning) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isConfirmKey(e.key) || e.repeat) return;
+      e.preventDefault();
+      advanceAfterPeek();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [peeked, isCorrect, isTransitioning, advanceAfterPeek]);
+
+  useEffect(() => {
+    if (!expanded) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.altKey) return;
+
+      if (e.key === ";" || e.key === ":") {
+        e.preventDefault();
+        if (!isCorrect && !isTransitioning) setRevealedAnswer(true);
+        return;
+      }
+
+      const key = e.key.toLowerCase();
+      if (key === "k") {
+        e.preventDefault();
+        setKeyboardSoundEnabled(!keyboardSoundEnabled);
+        return;
+      }
+
+      if (key === "o" && onToggleWordOrder) {
+        e.preventDefault();
+        onToggleWordOrder();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    expanded,
+    isCorrect,
+    isTransitioning,
+    keyboardSoundEnabled,
+    setKeyboardSoundEnabled,
+    onToggleWordOrder,
+  ]);
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (isCorrect || isTransitioning) return;
@@ -269,7 +359,7 @@ export default function WordReviewCard({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isCorrect) return;
+    if (isCorrect || peeked) return;
 
     const answer = input.trim();
     if (!answer) return;
@@ -287,6 +377,10 @@ export default function WordReviewCard({
   };
 
   const goNext = () => {
+    if (peeked) {
+      advanceAfterPeek();
+      return;
+    }
     advanceAfterCorrect("Enter");
   };
 
@@ -296,6 +390,10 @@ export default function WordReviewCard({
     if (!isConfirmKey(e.key) || e.repeat) return;
     e.preventDefault();
     e.stopPropagation();
+    if (peeked && !isCorrect) {
+      advanceAfterPeek();
+      return;
+    }
     advanceAfterCorrect(e.key);
   };
 
@@ -356,6 +454,19 @@ export default function WordReviewCard({
             {groupLabel}
           </span>
         </div>
+        {word.phonetic && (
+          <button
+            type="button"
+            onClick={() => setShowPhonetic((value) => !value)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+              showPhonetic
+                ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+            }`}
+          >
+            {showPhonetic ? "隐藏音标" : "显示音标"}
+          </button>
+        )}
       </div>
 
       <form
@@ -365,7 +476,7 @@ export default function WordReviewCard({
       >
         <div
           className={`flex flex-col items-center px-4 sm:px-6 ${
-            expanded ? "pt-8 pb-10" : "pt-4 pb-6"
+            expanded ? "pt-8 pb-6" : "pt-4 pb-6"
           }`}
         >
           <div className="mb-4 flex flex-wrap items-center justify-center gap-2 text-xs">
@@ -386,18 +497,18 @@ export default function WordReviewCard({
             <p className="text-2xl font-semibold leading-relaxed text-slate-800 dark:text-slate-100">
               {word.meaning}
             </p>
-            {word.phonetic && (
+            {word.phonetic && showPhonetic && (
               <p className="mt-3 text-base text-slate-500 dark:text-slate-400">
                 {word.phonetic}
               </p>
             )}
           </div>
 
-          {wrongCount >= 3 && !isCorrect && (
-            <p className="mb-6 rounded-lg bg-amber-50 px-4 py-2 text-center text-sm font-medium text-amber-800">
+          {(wrongCount >= 3 || revealedAnswer) && !isCorrect && (
+            <p className="mb-6 rounded-lg bg-amber-50 px-4 py-2 text-center text-sm font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
               {word.word}
               {word.phonetic && (
-                <span className="ml-2 font-normal text-amber-700">
+                <span className="ml-2 font-normal text-amber-700 dark:text-amber-300">
                   {word.phonetic}
                 </span>
               )}
@@ -412,6 +523,10 @@ export default function WordReviewCard({
                 <p className="mt-2 text-base text-green-700">{word.phonetic}</p>
               )}
             </div>
+          ) : peeked ? (
+            <p className="text-center text-sm text-amber-700 dark:text-amber-300">
+              已查看答案，不计入本次复习，将进入队尾
+            </p>
           ) : (
             <div className="w-full max-w-2xl">
               <UnderlineInput
@@ -445,6 +560,17 @@ export default function WordReviewCard({
               >
                 下一个
               </button>
+            ) : peeked ? (
+              <button
+                ref={nextButtonRef}
+                type="button"
+                onClick={goNext}
+                onKeyDown={handleNextButtonKeyDown}
+                disabled={isTransitioning}
+                className="min-w-[8rem] rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+              >
+                下一个
+              </button>
             ) : (
               <button
                 type="submit"
@@ -467,6 +593,8 @@ export default function WordReviewCard({
         </div>
       </form>
       </div>
+
+      {expanded && <FocusShortcutHints />}
     </div>
   );
 }
