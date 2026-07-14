@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import BrandMark from "./BrandMark";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import AiAssistant from "./AiAssistant";
-import GroupSelector from "./GroupSelector";
 import SettingsMenu from "./SettingsMenu";
 import { ChevronDownIcon } from "./ItemIcons";
 import { reviewApi } from "../api";
@@ -13,19 +12,19 @@ import {
 
 const topNavItems = [
   { to: "/", label: "今日复习", icon: "📋", end: true },
+  { to: "/plan", label: "计划管理", icon: "📝" },
   { to: "/groups", label: "分组管理", icon: "📁" },
-  { to: "/calendar", label: "复习日历", icon: "📅" },
+  { to: "/calendar", label: "事项日历", icon: "📅" },
   { to: "/skills", label: "Agent技能管理", icon: "🤖" },
 ];
 
 const cardNavGroup = {
   label: "卡片管理",
   icon: "📚",
-  paths: ["/items", "/plan", "/words"],
+  paths: ["/items", "/words"],
   children: [
     { to: "/items", label: "普通卡片" },
     { to: "/words", label: "单词卡片" },
-    { to: "/plan", label: "计划管理" },
   ],
 };
 
@@ -136,7 +135,7 @@ function LayoutShell() {
         </div>
 
         <nav className="shrink-0 space-y-1 px-3 py-4">
-          {topNavItems.slice(0, 1).map((item) => (
+          {topNavItems.slice(0, 2).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -152,17 +151,21 @@ function LayoutShell() {
               {({ isActive }) => (
                 <>
                   <span className="text-base">{item.icon}</span>
-                  <span className="flex flex-1 items-center justify-between gap-2">
-                    {item.label}
-                    {dueCount > 0 && (
-                      <span
-                        className={`h-2 w-2 shrink-0 rounded-full bg-red-500 ${
-                          isActive ? "ring-2 ring-white" : ""
-                        }`}
-                        title={`${dueCount} 项待复习`}
-                      />
-                    )}
-                  </span>
+                  {item.to === "/" ? (
+                    <span className="flex flex-1 items-center justify-between gap-2">
+                      {item.label}
+                      {dueCount > 0 && (
+                        <span
+                          className={`h-2 w-2 shrink-0 rounded-full bg-red-500 ${
+                            isActive ? "ring-2 ring-white" : ""
+                          }`}
+                          title={`${dueCount} 项待复习`}
+                        />
+                      )}
+                    </span>
+                  ) : (
+                    item.label
+                  )}
                 </>
               )}
             </NavLink>
@@ -174,7 +177,7 @@ function LayoutShell() {
             onToggle={() => setCardsOpen((v) => !v)}
           />
 
-          {topNavItems.slice(1).map((item) => (
+          {topNavItems.slice(2).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -198,10 +201,6 @@ function LayoutShell() {
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex shrink-0 items-center justify-between border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-6 py-3">
-          <div className="text-sm text-slate-500 dark:text-slate-400">当前分组筛选</div>
-          <GroupSelector />
-        </header>
         <main
           className={`min-h-0 flex-1 overflow-y-auto ${
             focusMode ? "flex flex-col px-6 py-3" : "px-6 py-6"

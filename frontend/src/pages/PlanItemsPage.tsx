@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { itemApi, wordApi } from "../api";
 import ForgettingCurveModal from "../components/ForgettingCurveModal";
+import PageGroupFilter from "../components/PageGroupFilter";
+import PlanMultiSelectBar, {
+  MultiSelectToggleButton,
+  SelectCheckbox,
+} from "../components/PlanMultiSelectBar";
 import {
   CurveIcon,
   EditIcon,
@@ -10,6 +15,7 @@ import {
 import SearchBox from "../components/SearchBox";
 import SortableHeader from "../components/SortableHeader";
 import { useGroups } from "../context/GroupContext";
+import { useMultiSelect } from "../hooks/useMultiSelect";
 import { getReviewStageOptions, type Item, type Word } from "../types";
 import { getNextReviewDate, getPlanCardStatusMeta } from "../utils/reviewSchedule";
 import {
@@ -48,6 +54,17 @@ export default function PlanItemsPage() {
   const [stageEditItem, setStageEditItem] = useState<Item | null>(null);
   const [stageEditWord, setStageEditWord] = useState<Word | null>(null);
   const [stageDraft, setStageDraft] = useState(0);
+  const {
+    selectMode,
+    selectedIds,
+    selectedCount,
+    exitSelectMode,
+    toggleSelectMode,
+    toggleItem,
+    toggleAll,
+    isAllSelected,
+    isPartiallySelected,
+  } = useMultiSelect();
 
   const groupName = (id: number | null) =>
     id == null ? "无分组" : groups.find((g) => g.id === id)?.name ?? "未知分组";
@@ -130,6 +147,17 @@ export default function PlanItemsPage() {
     return sortByWord(words, sortDirection);
   }, [words, wordSortField, sortDirection, memoryModeForGroupId]);
 
+  const visibleIds = useMemo(() => {
+    if (activeTab === "item") {
+      return sortedItems.map((item) => item.id);
+    }
+    return sortedWords.map((word) => word.id);
+  }, [activeTab, sortedItems, sortedWords]);
+
+  useEffect(() => {
+    exitSelectMode();
+  }, [activeTab, exitSelectMode]);
+
   const stageEditOptions = useMemo(
     () => {
       const target = stageEditItem ?? stageEditWord;
@@ -173,6 +201,35 @@ export default function PlanItemsPage() {
           window.dispatchEvent(new CustomEvent("app-data-changed"));
         }
       }
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleLeaveSelected = async () => {
+    if (selectedCount === 0) return;
+    setBulkLoading(true);
+    try {
+      if (activeTab === "item") {
+        const targets = sortedItems.filter((item) => selectedIds.has(item.id));
+        for (const item of targets) {
+          await itemApi.leavePlan(item.id);
+        }
+        if (targets.length > 0) {
+          await loadItems();
+          window.dispatchEvent(new CustomEvent("app-data-changed"));
+        }
+      } else {
+        const targets = sortedWords.filter((word) => selectedIds.has(word.id));
+        for (const word of targets) {
+          await wordApi.leavePlan(word.id);
+        }
+        if (targets.length > 0) {
+          await loadWords();
+          window.dispatchEvent(new CustomEvent("app-data-changed"));
+        }
+      }
+      exitSelectMode();
     } finally {
       setBulkLoading(false);
     }
@@ -239,8 +296,8 @@ export default function PlanItemsPage() {
       : "还没有加入复习计划的单词，可在「单词卡片」页加入计划";
 
   return (
-    <div>
-      <div className="mb-5 flex items-center justify-between">
+    <div className={selectMode ? "pb-24" : undefined}>
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">
             计划管理
@@ -249,13 +306,16 @@ export default function PlanItemsPage() {
             管理已加入复习计划的普通卡片与单词，只有在此列表中的内容才会收到复习提醒
           </p>
         </div>
-        <button
-          onClick={handleLeaveAll}
-          disabled={bulkLoading || currentCount === 0}
-          className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 transition hover:bg-orange-100 disabled:opacity-50"
-        >
-          {bulkLoading ? "处理中..." : "全部移除"}
-        </button>
+        <div className="flex shrink-0 items-center gap-3">
+          <PageGroupFilter />
+          <button
+            onClick={handleLeaveAll}
+            disabled={bulkLoading || currentCount === 0 || selectMode}
+            className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 transition hover:bg-orange-100 disabled:opacity-50"
+          >
+            {bulkLoading ? "处理中..." : "全部移除"}
+          </button>
+        </div>
       </div>
 
       <div className="mb-4 flex items-center gap-2">
@@ -309,6 +369,15 @@ export default function PlanItemsPage() {
         />
       </div>
 
+      {!loading && currentCount > 0 && (
+        <div className="mb-2 flex items-center justify-end">
+          <MultiSelectToggleButton
+            active={selectMode}
+            onClick={toggleSelectMode}
+          />
+        </div>
+      )}
+
       {loading ? (
         <p className="text-slate-400 dark:text-slate-500">加载中...</p>
       ) : currentCount === 0 ? (
@@ -320,6 +389,16 @@ export default function PlanItemsPage() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
               <tr>
+                {selectMode && (
+                  <th className="w-12 px-4 py-3">
+                    <SelectCheckbox
+                      checked={isAllSelected(visibleIds)}
+                      indeterminate={isPartiallySelected(visibleIds)}
+                      onChange={() => toggleAll(visibleIds)}
+                      ariaLabel="全选当前列表"
+                    />
+                  </th>
+                )}
                 <SortableHeader
                   label="标题"
                   direction={sortDirection}
@@ -348,8 +427,21 @@ export default function PlanItemsPage() {
                 return (
                   <tr
                     key={item.id}
-                    className="border-t border-slate-100 dark:border-slate-800"
+                    className={`border-t border-slate-100 dark:border-slate-800 ${
+                      selectMode && selectedIds.has(item.id)
+                        ? "bg-blue-50/50 dark:bg-blue-950/20"
+                        : ""
+                    }`}
                   >
+                    {selectMode && (
+                      <td className="px-4 py-3">
+                        <SelectCheckbox
+                          checked={selectedIds.has(item.id)}
+                          onChange={() => toggleItem(item.id)}
+                          ariaLabel={`选择 ${item.title}`}
+                        />
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       <div className="font-medium text-slate-800 dark:text-slate-100">
                         {item.title}
@@ -390,22 +482,24 @@ export default function PlanItemsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-0.5">
-                        <IconButton
-                          title="遗忘曲线"
-                          onClick={() => setCurveItem(item)}
-                          className="text-indigo-600 hover:bg-indigo-50"
-                        >
-                          <CurveIcon />
-                        </IconButton>
-                        <IconButton
-                          title="移出复习计划"
-                          onClick={() => handleLeaveItemPlan(item.id)}
-                          className="text-orange-600 hover:bg-orange-50"
-                        >
-                          <LeavePlanIcon />
-                        </IconButton>
-                      </div>
+                      {!selectMode && (
+                        <div className="flex items-center justify-end gap-0.5">
+                          <IconButton
+                            title="遗忘曲线"
+                            onClick={() => setCurveItem(item)}
+                            className="text-indigo-600 hover:bg-indigo-50"
+                          >
+                            <CurveIcon />
+                          </IconButton>
+                          <IconButton
+                            title="移出复习计划"
+                            onClick={() => handleLeaveItemPlan(item.id)}
+                            className="text-orange-600 hover:bg-orange-50"
+                          >
+                            <LeavePlanIcon />
+                          </IconButton>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -418,6 +512,16 @@ export default function PlanItemsPage() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
               <tr>
+                {selectMode && (
+                  <th className="w-12 px-4 py-3">
+                    <SelectCheckbox
+                      checked={isAllSelected(visibleIds)}
+                      indeterminate={isPartiallySelected(visibleIds)}
+                      onChange={() => toggleAll(visibleIds)}
+                      ariaLabel="全选当前列表"
+                    />
+                  </th>
+                )}
                 <SortableHeader
                   label="单词"
                   direction={sortDirection}
@@ -446,8 +550,21 @@ export default function PlanItemsPage() {
                 return (
                   <tr
                     key={word.id}
-                    className="border-t border-slate-100 dark:border-slate-800"
+                    className={`border-t border-slate-100 dark:border-slate-800 ${
+                      selectMode && selectedIds.has(word.id)
+                        ? "bg-blue-50/50 dark:bg-blue-950/20"
+                        : ""
+                    }`}
                   >
+                    {selectMode && (
+                      <td className="px-4 py-3">
+                        <SelectCheckbox
+                          checked={selectedIds.has(word.id)}
+                          onChange={() => toggleItem(word.id)}
+                          ariaLabel={`选择 ${word.word}`}
+                        />
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       <div className="font-medium text-slate-800 dark:text-slate-100">
                         {word.word}
@@ -493,15 +610,17 @@ export default function PlanItemsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-0.5">
-                        <IconButton
-                          title="移出复习计划"
-                          onClick={() => handleLeaveWordPlan(word.id)}
-                          className="text-orange-600 hover:bg-orange-50"
-                        >
-                          <LeavePlanIcon />
-                        </IconButton>
-                      </div>
+                      {!selectMode && (
+                        <div className="flex items-center justify-end gap-0.5">
+                          <IconButton
+                            title="移出复习计划"
+                            onClick={() => handleLeaveWordPlan(word.id)}
+                            className="text-orange-600 hover:bg-orange-50"
+                          >
+                            <LeavePlanIcon />
+                          </IconButton>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -510,6 +629,15 @@ export default function PlanItemsPage() {
           </table>
         </div>
       )}
+
+      <PlanMultiSelectBar
+        visible={selectMode}
+        selectedCount={selectedCount}
+        loading={bulkLoading}
+        onLeave={handleLeaveSelected}
+        leaveLabel="移除"
+        onCancel={exitSelectMode}
+      />
 
       {curveItem && (
         <ForgettingCurveModal item={curveItem} onClose={() => setCurveItem(null)} />

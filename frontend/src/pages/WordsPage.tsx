@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { dictionaryApi, wordApi, type WordPayload } from "../api";
+import BulkGroupEditModal from "../components/BulkGroupEditModal";
 import ItemActionsMenu from "../components/ItemActionsMenu";
+import PageGroupFilter from "../components/PageGroupFilter";
 import PlanMultiSelectBar, {
   MultiSelectToggleButton,
   SelectCheckbox,
@@ -148,6 +150,8 @@ export default function WordsPage() {
   const [sortField, setSortField] = useState<"word" | "created_at">("created_at");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkGroupModalOpen, setBulkGroupModalOpen] = useState(false);
+  const [bulkGroupError, setBulkGroupError] = useState("");
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const {
     selectMode,
@@ -292,6 +296,60 @@ export default function WordsPage() {
         window.dispatchEvent(new CustomEvent("app-data-changed"));
       }
       exitSelectMode();
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleEditGroupSelected = () => {
+    if (selectedCount === 0) return;
+    setBulkGroupError("");
+    setBulkGroupModalOpen(true);
+  };
+
+  const handleConfirmBulkGroup = async (groupId: number | null) => {
+    const targets = sortedWords.filter((word) => selectedIds.has(word.id));
+    if (targets.length === 0) return;
+
+    setBulkLoading(true);
+    setBulkGroupError("");
+
+    const failed: string[] = [];
+    let updated = 0;
+
+    try {
+      for (const word of targets) {
+        if (word.group_id === groupId) continue;
+        try {
+          await wordApi.update(word.id, { group_id: groupId });
+          updated += 1;
+        } catch (err: unknown) {
+          const detail =
+            (err as { response?: { data?: { detail?: string } } })?.response?.data
+              ?.detail ?? "移动失败";
+          failed.push(
+            `${word.word}：${typeof detail === "string" ? detail : "移动失败"}`
+          );
+        }
+      }
+
+      if (updated > 0) {
+        await load();
+        window.dispatchEvent(new CustomEvent("app-data-changed"));
+        setBulkGroupModalOpen(false);
+        exitSelectMode();
+      } else if (failed.length > 0) {
+        setBulkGroupError(
+          failed.length === 1
+            ? failed[0]
+            : `${failed.slice(0, 2).join("；")}${
+                failed.length > 2 ? ` 等 ${failed.length} 项失败` : ""
+              }`
+        );
+      } else {
+        setBulkGroupModalOpen(false);
+        exitSelectMode();
+      }
     } finally {
       setBulkLoading(false);
     }
@@ -520,20 +578,23 @@ export default function WordsPage() {
 
   return (
     <div className={selectMode ? "pb-24" : undefined}>
-      <div className="mb-5 flex items-center justify-between">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">单词卡片</h1>
           <p className="text-sm text-slate-400 dark:text-slate-500">
             单词加入复习计划后，今日复习将根据释义拼写单词
           </p>
         </div>
-        <button
-          type="button"
-          onClick={openAddWords}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
-        >
-          添加单词
-        </button>
+        <div className="flex shrink-0 items-center gap-3">
+          <PageGroupFilter />
+          <button
+            type="button"
+            onClick={openAddWords}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
+          >
+            添加单词
+          </button>
+        </div>
       </div>
 
       <div className="mb-4">
@@ -722,8 +783,23 @@ export default function WordsPage() {
         loading={bulkLoading}
         onJoin={handleJoinSelected}
         onLeave={handleLeaveSelected}
+        onEditGroup={handleEditGroupSelected}
         onDelete={handleDeleteSelected}
         onCancel={exitSelectMode}
+      />
+
+      <BulkGroupEditModal
+        open={bulkGroupModalOpen}
+        selectedCount={selectedCount}
+        groups={groups}
+        loading={bulkLoading}
+        error={bulkGroupError}
+        onClose={() => {
+          if (bulkLoading) return;
+          setBulkGroupModalOpen(false);
+          setBulkGroupError("");
+        }}
+        onConfirm={handleConfirmBulkGroup}
       />
 
       {batchMissingConfirmOpen && (

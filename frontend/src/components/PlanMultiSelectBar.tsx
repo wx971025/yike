@@ -2,10 +2,12 @@ interface PlanMultiSelectBarProps {
   visible: boolean;
   selectedCount: number;
   loading: boolean;
-  onJoin: () => void;
-  onLeave: () => void;
-  onDelete: () => void;
   onCancel: () => void;
+  onJoin?: () => void;
+  onLeave?: () => void;
+  onEditGroup?: () => void;
+  onDelete?: () => void;
+  leaveLabel?: string;
 }
 
 export function MultiSelectToggleButton({
@@ -34,10 +36,12 @@ export default function PlanMultiSelectBar({
   visible,
   selectedCount,
   loading,
+  onCancel,
   onJoin,
   onLeave,
+  onEditGroup,
   onDelete,
-  onCancel,
+  leaveLabel = "移出计划",
 }: PlanMultiSelectBarProps) {
   if (!visible) return null;
 
@@ -47,30 +51,46 @@ export default function PlanMultiSelectBar({
         <span className="text-sm text-slate-600 dark:text-slate-300">
           已选 <span className="font-semibold tabular-nums text-slate-800 dark:text-slate-100">{selectedCount}</span> 项
         </span>
-        <button
-          type="button"
-          onClick={onJoin}
-          disabled={loading || selectedCount === 0}
-          className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
-        >
-          {loading ? "处理中..." : "加入计划"}
-        </button>
-        <button
-          type="button"
-          onClick={onLeave}
-          disabled={loading || selectedCount === 0}
-          className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 transition hover:bg-orange-100 disabled:opacity-50 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300"
-        >
-          {loading ? "处理中..." : "移出计划"}
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          disabled={loading || selectedCount === 0}
-          className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-50 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-        >
-          {loading ? "处理中..." : "删除"}
-        </button>
+        {onJoin && (
+          <button
+            type="button"
+            onClick={onJoin}
+            disabled={loading || selectedCount === 0}
+            className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+          >
+            {loading ? "处理中..." : "加入计划"}
+          </button>
+        )}
+        {onLeave && (
+          <button
+            type="button"
+            onClick={onLeave}
+            disabled={loading || selectedCount === 0}
+            className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 transition hover:bg-orange-100 disabled:opacity-50 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300"
+          >
+            {loading ? "处理中..." : leaveLabel}
+          </button>
+        )}
+        {onEditGroup && (
+          <button
+            type="button"
+            onClick={onEditGroup}
+            disabled={loading || selectedCount === 0}
+            className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-50 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300"
+          >
+            {loading ? "处理中..." : "编辑分组"}
+          </button>
+        )}
+        {onDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={loading || selectedCount === 0}
+            className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-50 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+          >
+            {loading ? "处理中..." : "删除"}
+          </button>
+        )}
         <button
           type="button"
           onClick={onCancel}

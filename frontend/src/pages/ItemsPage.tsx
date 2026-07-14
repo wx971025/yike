@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { itemApi, type ItemPayload } from "../api";
+import BulkGroupEditModal from "../components/BulkGroupEditModal";
 import ItemActionsMenu from "../components/ItemActionsMenu";
+import PageGroupFilter from "../components/PageGroupFilter";
 import PlanMultiSelectBar, {
   MultiSelectToggleButton,
   SelectCheckbox,
@@ -55,6 +57,8 @@ export default function ItemsPage() {
   const [sortField, setSortField] = useState<"title" | "created_at">("created_at");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkGroupModalOpen, setBulkGroupModalOpen] = useState(false);
+  const [bulkGroupError, setBulkGroupError] = useState("");
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const {
     selectMode,
@@ -193,6 +197,60 @@ export default function ItemsPage() {
     }
   };
 
+  const handleEditGroupSelected = () => {
+    if (selectedCount === 0) return;
+    setBulkGroupError("");
+    setBulkGroupModalOpen(true);
+  };
+
+  const handleConfirmBulkGroup = async (groupId: number | null) => {
+    const targets = sortedItems.filter((item) => selectedIds.has(item.id));
+    if (targets.length === 0) return;
+
+    setBulkLoading(true);
+    setBulkGroupError("");
+
+    const failed: string[] = [];
+    let updated = 0;
+
+    try {
+      for (const item of targets) {
+        if (item.group_id === groupId) continue;
+        try {
+          await itemApi.update(item.id, { group_id: groupId });
+          updated += 1;
+        } catch (err: unknown) {
+          const detail =
+            (err as { response?: { data?: { detail?: string } } })?.response?.data
+              ?.detail ?? "移动失败";
+          failed.push(
+            `${item.title}：${typeof detail === "string" ? detail : "移动失败"}`
+          );
+        }
+      }
+
+      if (updated > 0) {
+        await load();
+        window.dispatchEvent(new CustomEvent("app-data-changed"));
+        setBulkGroupModalOpen(false);
+        exitSelectMode();
+      } else if (failed.length > 0) {
+        setBulkGroupError(
+          failed.length === 1
+            ? failed[0]
+            : `${failed.slice(0, 2).join("；")}${
+                failed.length > 2 ? ` 等 ${failed.length} 项失败` : ""
+              }`
+        );
+      } else {
+        setBulkGroupModalOpen(false);
+        exitSelectMode();
+      }
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
   const openCreate = () => {
     setEditingId(null);
     setFormError("");
@@ -291,21 +349,24 @@ export default function ItemsPage() {
 
   return (
     <div className={selectMode ? "pb-24" : undefined}>
-      <div className="mb-5 flex items-center justify-between">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">普通卡片</h1>
           <p className="text-sm text-slate-400 dark:text-slate-500">
             新建卡片后需加入复习计划才会收到提醒，点击日历图标加入计划
           </p>
         </div>
-        <button
-          type="button"
-          onClick={openCreate}
-          title="新建卡片"
-          className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition hover:bg-blue-700"
-        >
-          <PlusIcon />
-        </button>
+        <div className="flex shrink-0 items-center gap-3">
+          <PageGroupFilter />
+          <button
+            type="button"
+            onClick={openCreate}
+            title="新建卡片"
+            className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition hover:bg-blue-700"
+          >
+            <PlusIcon />
+          </button>
+        </div>
       </div>
 
       <div className="mb-4">
@@ -475,8 +536,23 @@ export default function ItemsPage() {
         loading={bulkLoading}
         onJoin={handleJoinSelected}
         onLeave={handleLeaveSelected}
+        onEditGroup={handleEditGroupSelected}
         onDelete={handleDeleteSelected}
         onCancel={exitSelectMode}
+      />
+
+      <BulkGroupEditModal
+        open={bulkGroupModalOpen}
+        selectedCount={selectedCount}
+        groups={groups}
+        loading={bulkLoading}
+        error={bulkGroupError}
+        onClose={() => {
+          if (bulkLoading) return;
+          setBulkGroupModalOpen(false);
+          setBulkGroupError("");
+        }}
+        onConfirm={handleConfirmBulkGroup}
       />
 
       {modalOpen && (

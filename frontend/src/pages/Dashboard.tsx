@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { reviewApi, itemApi, wordApi } from "../api";
 import { CardKindBadge } from "../components/CardKindBadge";
 import ForgettingCurveModal from "../components/ForgettingCurveModal";
+import PageGroupFilter from "../components/PageGroupFilter";
 import WordReviewCard from "../components/WordReviewCard";
 import { CurveIcon, IconButton } from "../components/ItemIcons";
 import { useGroups } from "../context/GroupContext";
@@ -218,11 +219,14 @@ export default function Dashboard() {
       )}
 
       {!focusMode && (
-        <div className="mb-5">
-          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">今日复习</h1>
-          <p className="text-sm text-slate-400 dark:text-slate-500">
-            根据分组记忆方式，查看今天待复习和已复习的内容
-          </p>
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">今日复习</h1>
+            <p className="text-sm text-slate-400 dark:text-slate-500">
+              根据分组记忆方式，查看今天待复习和已复习的内容
+            </p>
+          </div>
+          <PageGroupFilter />
         </div>
       )}
 

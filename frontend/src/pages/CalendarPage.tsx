@@ -49,7 +49,7 @@ export default function CalendarPage() {
   return (
     <div>
       <div className="mb-5">
-        <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">复习日历</h1>
+        <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">事项日历</h1>
         <p className="text-sm text-slate-400 dark:text-slate-500">
           当前显示：{groupLabel} 的艾宾浩斯复习路径，点击日期查看当天要复习的卡片
         </p>

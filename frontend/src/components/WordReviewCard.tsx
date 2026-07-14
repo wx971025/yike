@@ -233,21 +233,20 @@ export default function WordReviewCard({
     else void playEnterSound();
   };
 
+  const peeked = revealedAnswer || wrongCount >= 3;
+
   const advanceAfterCorrect = useCallback(
     (key: string) => {
       if (isTransitioning || !isCorrect) return;
       playAdvanceSound(key);
-      transitionToNext(() => onReviewed(word.id));
+      if (peeked) {
+        transitionToNext(() => onDefer(word.id));
+      } else {
+        transitionToNext(() => onReviewed(word.id));
+      }
     },
-    [isCorrect, isTransitioning, word.id, onReviewed]
+    [isCorrect, isTransitioning, peeked, word.id, onDefer, onReviewed]
   );
-
-  const peeked = revealedAnswer || wrongCount >= 3;
-
-  const advanceAfterPeek = useCallback(() => {
-    if (isTransitioning || !peeked) return;
-    transitionToNext(() => onDefer(word.id));
-  }, [isTransitioning, peeked, word.id, onDefer]);
 
   useEffect(() => {
     if (isCorrect) void warmUpKeyboardSounds();
@@ -257,12 +256,10 @@ export default function WordReviewCard({
     if (isTransitioning) return;
     if (isCorrect) {
       nextButtonRef.current?.focus();
-    } else if (peeked) {
-      nextButtonRef.current?.focus();
     } else {
       inputRef.current?.focus();
     }
-  }, [word.id, isCorrect, isTransitioning, visible, peeked]);
+  }, [word.id, isCorrect, isTransitioning, visible]);
 
   useEffect(() => {
     if (!isCorrect || isTransitioning) return;
@@ -276,19 +273,6 @@ export default function WordReviewCard({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isCorrect, isTransitioning, advanceAfterCorrect]);
-
-  useEffect(() => {
-    if (!peeked || isCorrect || isTransitioning) return;
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!isConfirmKey(e.key) || e.repeat) return;
-      e.preventDefault();
-      advanceAfterPeek();
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [peeked, isCorrect, isTransitioning, advanceAfterPeek]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -359,7 +343,7 @@ export default function WordReviewCard({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isCorrect || peeked) return;
+    if (isCorrect) return;
 
     const answer = input.trim();
     if (!answer) return;
@@ -371,16 +355,14 @@ export default function WordReviewCard({
     }
 
     setHasError(true);
-    setWrongCount((count) => count + 1);
+    if (!peeked) {
+      setWrongCount((count) => count + 1);
+    }
     setInput("");
     inputRef.current?.focus();
   };
 
   const goNext = () => {
-    if (peeked) {
-      advanceAfterPeek();
-      return;
-    }
     advanceAfterCorrect("Enter");
   };
 
@@ -390,10 +372,6 @@ export default function WordReviewCard({
     if (!isConfirmKey(e.key) || e.repeat) return;
     e.preventDefault();
     e.stopPropagation();
-    if (peeked && !isCorrect) {
-      advanceAfterPeek();
-      return;
-    }
     advanceAfterCorrect(e.key);
   };
 
@@ -523,10 +501,6 @@ export default function WordReviewCard({
                 <p className="mt-2 text-base text-green-700">{word.phonetic}</p>
               )}
             </div>
-          ) : peeked ? (
-            <p className="text-center text-sm text-amber-700 dark:text-amber-300">
-              已查看答案，不计入本次复习，将进入队尾
-            </p>
           ) : (
             <div className="w-full max-w-2xl">
               <UnderlineInput
@@ -538,7 +512,11 @@ export default function WordReviewCard({
                 onKeyDown={handleInputKeyDown}
                 hasError={hasError}
                 inputRef={inputRef}
-                placeholder="根据释义输入单词，回车或空格确认"
+                placeholder={
+                  peeked
+                    ? "对照答案输入单词，回车或空格确认"
+                    : "根据释义输入单词，回车或空格确认"
+                }
               />
               {hasError && (
                 <p className="mt-4 text-center text-sm text-red-600">
@@ -550,17 +528,6 @@ export default function WordReviewCard({
 
           <div className="mt-8 flex justify-center gap-3">
             {isCorrect ? (
-              <button
-                ref={nextButtonRef}
-                type="button"
-                onClick={goNext}
-                onKeyDown={handleNextButtonKeyDown}
-                disabled={isTransitioning}
-                className="min-w-[8rem] rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
-              >
-                下一个
-              </button>
-            ) : peeked ? (
               <button
                 ref={nextButtonRef}
                 type="button"
