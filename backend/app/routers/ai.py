@@ -29,9 +29,11 @@ async def chat(
 async def generate_word_example_endpoint(
     payload: GenerateWordExampleRequest,
     user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     result = await generate_word_example(
         user,
+        db,
         word=payload.word,
         meaning=payload.meaning,
         pos=payload.pos,

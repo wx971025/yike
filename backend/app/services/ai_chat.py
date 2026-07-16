@@ -6,13 +6,9 @@ import httpx
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from ..config import (
-    OPENAI_API_KEY,
-    OPENAI_BASE_URL,
-    OPENAI_DISABLE_THINKING,
-    OPENAI_MODEL,
-)
+from ..config import OPENAI_DISABLE_THINKING
 from ..models import User
+from .ai_config_store import resolve_active_ai_config
 from .ai_tools import TOOL_DEFINITIONS, execute_tool
 from .skills import build_skill_catalog_text, list_enabled_skills
 
@@ -66,30 +62,34 @@ Skill 系统说明：
 MAX_TOOL_ROUNDS = 6
 
 
-def resolve_ai_config(user: User) -> tuple[str, str, str]:
-    if user.ai_use_custom:
-        if not user.ai_api_key:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="请在设置中配置自定义 AI 的 API Key",
-            )
-        if not user.ai_base_url:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="请在设置中配置自定义 AI 的 Base URL",
-            )
-        if not user.ai_model:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="请在设置中配置自定义 AI 的 Model",
-            )
-        return user.ai_base_url.rstrip("/"), user.ai_api_key, user.ai_model
-    if not OPENAI_API_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI 服务未配置，请在 .env 中设置 OPENAI_API_KEY",
+def resolve_ai_config(user: User, db: Session) -> tuple[str, str, str]:
+    config = resolve_active_ai_config(db, user)
+    return config.base_url.rstrip("/"), config.api_key, config.model
+
+
+async def test_ai_connection(base_url: str, api_key: str, model: str) -> None:
+    body: dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "user", "content": "ping"}],
+        "max_tokens": 8,
+    }
+    if OPENAI_DISABLE_THINKING:
+        body["thinking"] = {"type": "disabled"}
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(
+            f"{base_url.rstrip('/')}/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=body,
         )
-    return OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"连通失败: {_parse_api_error(response)}",
+            )
 
 
 def _assistant_history_entry(message: dict[str, Any]) -> dict[str, Any]:
@@ -165,7 +165,7 @@ async def chat_with_tools(
     *,
     context: dict[str, Any] | None = None,
 ) -> tuple[str, list[str]]:
-    base_url, api_key, model = resolve_ai_config(user)
+    base_url, api_key, model = resolve_ai_config(user, db)
 
     # 前端只传展示用对话；思考模型要求 assistant 消息带 reasoning_content，
     # 因此这里仅保留用户消息，避免多轮对话触发 400。

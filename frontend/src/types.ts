@@ -6,11 +6,22 @@ export interface User {
   created_at: string;
 }
 
-export interface AiConfig {
-  use_custom: boolean;
+export interface AiConfigStatus {
+  ready: boolean;
+  active_config_id: number | null;
+  active_title: string | null;
+  verified: boolean;
+}
+
+export interface AiConfigItem {
+  id: number;
+  title: string;
   base_url: string;
   model: string;
-  api_key_set: boolean;
+  api_key_masked: string;
+  verified: boolean;
+  is_active: boolean;
+  created_at: string;
 }
 
 export type MemoryMode = "ebbinghaus" | "daily_7" | "daily_15" | "daily_30";

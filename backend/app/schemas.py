@@ -24,15 +24,45 @@ class UserProfileUpdate(BaseModel):
     avatar: str | None = Field(default=None, max_length=32)
 
 
-class AiConfigOut(BaseModel):
-    use_custom: bool
+class AiConfigStatusOut(BaseModel):
+    ready: bool
+    active_config_id: int | None = None
+    active_title: str | None = None
+    verified: bool = False
+
+
+class AiConfigItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
     base_url: str
     model: str
-    api_key_set: bool
+    api_key_masked: str
+    verified: bool
+    is_active: bool
+    created_at: datetime
+
+
+class AiConfigApiKeyOut(BaseModel):
+    api_key: str
+
+
+class AiConfigCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=128)
+    base_url: str = Field(min_length=1, max_length=512)
+    api_key: str = Field(min_length=1, max_length=512)
+    model: str = Field(min_length=1, max_length=128)
 
 
 class AiConfigUpdate(BaseModel):
-    use_custom: bool | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=128)
+    base_url: str | None = Field(default=None, max_length=512)
+    api_key: str | None = Field(default=None, max_length=512)
+    model: str | None = Field(default=None, max_length=128)
+
+
+class AiConfigTestRequest(BaseModel):
     base_url: str | None = Field(default=None, max_length=512)
     api_key: str | None = Field(default=None, max_length=512)
     model: str | None = Field(default=None, max_length=128)

@@ -18,8 +18,12 @@ class User(Base):
     ai_base_url: Mapped[str] = mapped_column(String(512), default="")
     ai_api_key: Mapped[str] = mapped_column(String(512), default="")
     ai_model: Mapped[str] = mapped_column(String(128), default="")
+    ai_config_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    ai_configs: Mapped[list["UserAiConfig"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
     groups: Mapped[list["Group"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
@@ -38,6 +42,27 @@ class User(Base):
     skills: Mapped[list["Skill"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+
+
+class UserAiConfig(Base):
+    __tablename__ = "user_ai_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), index=True, nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(128), default="")
+    base_url: Mapped[str] = mapped_column(String(512), default="")
+    api_key: Mapped[str] = mapped_column(String(512), default="")
+    model: Mapped[str] = mapped_column(String(128), default="")
+    verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    user: Mapped["User"] = relationship(back_populates="ai_configs")
 
 
 class Group(Base):

@@ -14,10 +14,12 @@ from .migrations import (
     migrate_review_stages,
     migrate_skipped_at,
     migrate_user_ai_config,
+    migrate_user_ai_config_verified,
+    migrate_user_ai_configs_table,
     migrate_user_profile,
     migrate_group_memory_mode,
 )
-from .routers import ai, auth, calendar, confusable_pairs, dictionary, groups, items, reminders, skills, words
+from .routers import ai, ai_configs, auth, calendar, confusable_pairs, dictionary, groups, items, reminders, skills, words
 from .services.dictionary import schedule_dictionary_setup
 
 Base.metadata.create_all(bind=engine)
@@ -27,6 +29,8 @@ migrate_last_reviewed_at()
 migrate_skipped_at()
 migrate_user_profile()
 migrate_user_ai_config()
+migrate_user_ai_config_verified()
+migrate_user_ai_configs_table()
 migrate_group_memory_mode()
 migrate_ebbinghaus_schedule_v3()
 migrate_reminders_v1()
@@ -46,6 +50,7 @@ app.add_middleware(
 app.add_middleware(IpLogMiddleware)
 
 app.include_router(auth.router)
+app.include_router(ai_configs.router)
 app.include_router(groups.router)
 app.include_router(items.router)
 app.include_router(words.router)

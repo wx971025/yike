@@ -1,8 +1,6 @@
 services:
   backend:
     build: ./backend
-    env_file:
-      - .env
     environment:
       - TZ=Asia/Shanghai
       - DATABASE_URL=sqlite:////data/ebbinghaus.db

@@ -148,6 +148,30 @@ def migrate_user_ai_config() -> None:
         )
 
 
+def migrate_user_ai_config_verified() -> None:
+    """为用户增加 AI 配置连通性验证标记。"""
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text("SELECT value FROM schema_meta WHERE key = 'user_ai_config_verified_v1'")
+        ).fetchone()
+        if done:
+            return
+        columns = _column_names(conn, "users")
+        if "ai_config_verified" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE users ADD COLUMN ai_config_verified BOOLEAN NOT NULL DEFAULT 0"
+                )
+            )
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES "
+                "('user_ai_config_verified_v1', '1')"
+            )
+        )
+
+
 def migrate_group_memory_mode() -> None:
     """为分组增加 memory_mode 字段，默认艾宾浩斯间隔复习。"""
     with engine.begin() as conn:
@@ -362,5 +386,82 @@ def migrate_example_translation_v1() -> None:
             text(
                 "INSERT INTO schema_meta (key, value) VALUES "
                 "('example_translation_v1', '1')"
+            )
+        )
+
+
+def migrate_user_ai_configs_table() -> None:
+    """创建用户 AI 配置表，并迁移旧版单条用户配置。"""
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text("SELECT value FROM schema_meta WHERE key = 'user_ai_configs_v1'")
+        ).fetchone()
+        if done:
+            return
+
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS user_ai_configs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    title VARCHAR(128) NOT NULL DEFAULT '',
+                    base_url VARCHAR(512) NOT NULL DEFAULT '',
+                    api_key VARCHAR(512) NOT NULL DEFAULT '',
+                    model VARCHAR(128) NOT NULL DEFAULT '',
+                    verified BOOLEAN NOT NULL DEFAULT 0,
+                    is_active BOOLEAN NOT NULL DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )
+                """
+            )
+        )
+
+        users = conn.execute(
+            text(
+                """
+                SELECT id, ai_base_url, ai_api_key, ai_model, ai_config_verified
+                FROM users
+                WHERE ai_api_key != '' AND ai_base_url != '' AND ai_model != ''
+                """
+            )
+        ).fetchall()
+        for row in users:
+            exists = conn.execute(
+                text(
+                    "SELECT 1 FROM user_ai_configs WHERE user_id = :user_id LIMIT 1"
+                ),
+                {"user_id": row[0]},
+            ).fetchone()
+            if exists:
+                continue
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO user_ai_configs (
+                        user_id, title, base_url, api_key, model, verified, is_active,
+                        created_at, updated_at
+                    ) VALUES (
+                        :user_id, :title, :base_url, :api_key, :model, :verified, 1,
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    )
+                    """
+                ),
+                {
+                    "user_id": row[0],
+                    "title": "默认配置",
+                    "base_url": row[1],
+                    "api_key": row[2],
+                    "model": row[3],
+                    "verified": 1 if row[4] else 0,
+                },
+            )
+
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES ('user_ai_configs_v1', '1')"
             )
         )

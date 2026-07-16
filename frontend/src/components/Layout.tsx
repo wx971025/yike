@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import BrandMark from "./BrandMark";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import AiAssistant from "./AiAssistant";
+import AiConfigModal from "./AiConfigModal";
 import SettingsMenu from "./SettingsMenu";
 import { ChevronDownIcon } from "./ItemIcons";
 import { reviewApi, reminderApi } from "../api";
@@ -95,6 +96,7 @@ export default function Layout() {
 function LayoutShell() {
   const location = useLocation();
   const [aiOpen, setAiOpen] = useState(false);
+  const [aiConfigModalOpen, setAiConfigModalOpen] = useState(false);
   const [dueCount, setDueCount] = useState(0);
   const isCardSection = cardNavGroup.paths.includes(location.pathname);
   const [cardsOpen, setCardsOpen] = useState(isCardSection);
@@ -198,7 +200,7 @@ function LayoutShell() {
         </nav>
 
         <div className="mt-auto shrink-0 border-t border-slate-100 dark:border-slate-800 px-3 py-4">
-          <SettingsMenu />
+          <SettingsMenu onOpenAiConfig={() => setAiConfigModalOpen(true)} />
         </div>
       </aside>
 
@@ -210,7 +212,15 @@ function LayoutShell() {
         </main>
       </div>
 
-      <AiAssistant collapsed={!aiOpen} onToggle={() => setAiOpen((v) => !v)} />
+      <AiAssistant
+        collapsed={!aiOpen}
+        onToggle={() => setAiOpen((v) => !v)}
+        onOpenAiConfig={() => setAiConfigModalOpen(true)}
+      />
+
+      {aiConfigModalOpen && (
+        <AiConfigModal onClose={() => setAiConfigModalOpen(false)} />
+      )}
     </div>
   );
 }

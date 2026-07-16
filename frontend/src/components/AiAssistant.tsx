@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { aiApi } from "../api";
+import { aiApi, authApi } from "../api";
 import { ClearContextIcon, IconButton } from "./ItemIcons";
 import MarkdownMessage from "./MarkdownMessage";
 import { useGroups } from "../context/GroupContext";
-import type { Group } from "../types";
+import type { AiConfigStatus, Group } from "../types";
 import {
   extractMentionGroupNames,
   getActiveMention,
@@ -22,6 +22,17 @@ const INITIAL_MESSAGE: Message = {
     "你好！我是忆刻 AI 助手，可以帮你管理分组、卡片、单词和复习计划，还能通过 Skill 记住你的工作方式。输入 @ 可引用分组。有什么需要？",
 };
 
+const AI_NOT_READY_MESSAGE =
+  "AI 功能尚未就绪。请先在 **设置 → AI 配置** 中新增配置，选择启用项，并通过 **测试连通性** 后再使用。";
+
+function isNotReadyMessage(content: string): boolean {
+  return (
+    content === AI_NOT_READY_MESSAGE ||
+    content.includes("AI 功能尚未就绪") ||
+    content.includes("请先在设置 → AI 配置")
+  );
+}
+
 const SUGGESTIONS = [
   "今天有哪些要复习的？",
   "帮我添加单词 apple",
@@ -33,6 +44,7 @@ const SUGGESTIONS = [
 interface AiAssistantProps {
   collapsed: boolean;
   onToggle: () => void;
+  onOpenAiConfig: () => void;
 }
 
 function AiFabButton({
@@ -65,16 +77,78 @@ function AiFabButton({
   );
 }
 
-export default function AiAssistant({ collapsed, onToggle }: AiAssistantProps) {
+export default function AiAssistant({
+  collapsed,
+  onToggle,
+  onOpenAiConfig,
+}: AiAssistantProps) {
   const { groups, refreshGroups } = useGroups();
   const [messages, setMessages] = useState<Message[]>([INITIAL_MESSAGE]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [aiReady, setAiReady] = useState(false);
+  const [aiConfigLoaded, setAiConfigLoaded] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [activeMention, setActiveMention] = useState<ActiveMention | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const applyAiConfig = (config: AiConfigStatus) => {
+    setAiReady(config.ready);
+    setAiConfigLoaded(true);
+
+    setMessages((prev) => {
+      const withoutNotReady = prev.filter(
+        (msg) => !(msg.role === "assistant" && isNotReadyMessage(msg.content))
+      );
+
+      if (!config.ready) {
+        const hasUserMessage = withoutNotReady.some((m) => m.role === "user");
+        if (hasUserMessage) return withoutNotReady;
+        return [{ role: "assistant" as const, content: AI_NOT_READY_MESSAGE }];
+      }
+
+      if (withoutNotReady.length === 0) {
+        return [INITIAL_MESSAGE];
+      }
+      return withoutNotReady;
+    });
+  };
+
+  useEffect(() => {
+    const loadConfig = () => {
+      authApi
+        .getAiConfigStatus()
+        .then((res) => applyAiConfig(res.data))
+        .catch(() => {
+          setAiReady(false);
+          setAiConfigLoaded(true);
+          setMessages([{ role: "assistant", content: AI_NOT_READY_MESSAGE }]);
+        });
+    };
+
+    loadConfig();
+
+    const onConfigUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<AiConfigStatus>).detail;
+      if (detail) applyAiConfig(detail);
+      else loadConfig();
+    };
+    window.addEventListener("ai-config-updated", onConfigUpdated);
+    return () => window.removeEventListener("ai-config-updated", onConfigUpdated);
+  }, []);
+
+  useEffect(() => {
+    if (collapsed) return;
+    authApi
+      .getAiConfigStatus()
+      .then((res) => applyAiConfig(res.data))
+      .catch(() => {
+        setAiReady(false);
+        setAiConfigLoaded(true);
+      });
+  }, [collapsed]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -117,9 +191,21 @@ export default function AiAssistant({ collapsed, onToggle }: AiAssistantProps) {
     inputRef.current.focus();
   };
 
+
   const send = async (text: string) => {
     const content = text.trim();
     if (!content || loading) return;
+
+    if (!aiReady) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "user", content },
+        { role: "assistant", content: AI_NOT_READY_MESSAGE },
+      ]);
+      setInput("");
+      setActiveMention(null);
+      return;
+    }
 
     const groupNames = extractMentionGroupNames(content);
     const nextMessages = [...messages, { role: "user" as const, content }];
@@ -233,6 +319,21 @@ export default function AiAssistant({ collapsed, onToggle }: AiAssistantProps) {
           </div>
         </div>
 
+        {!aiReady && aiConfigLoaded && (
+          <div className="shrink-0 border-b border-amber-100 bg-amber-50 px-4 py-3 dark:border-amber-900/40 dark:bg-amber-950/30">
+            <p className="text-xs leading-relaxed text-amber-800 dark:text-amber-200">
+              请先在设置中新增 AI 配置，选择启用项并通过连通测试。
+            </p>
+            <button
+              type="button"
+              onClick={onOpenAiConfig}
+              className="mt-2 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-700"
+            >
+              去配置 AI
+            </button>
+          </div>
+        )}
+
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
         {messages.map((msg, i) => (
           <div
@@ -264,7 +365,7 @@ export default function AiAssistant({ collapsed, onToggle }: AiAssistantProps) {
         <div ref={bottomRef} />
       </div>
 
-      {messages.length <= 1 && (
+      {messages.length <= 1 && aiReady && (
         <div className="flex shrink-0 flex-wrap gap-1.5 px-3 pb-2">
           {SUGGESTIONS.map((s) => (
             <button
@@ -322,19 +423,32 @@ export default function AiAssistant({ collapsed, onToggle }: AiAssistantProps) {
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleInputKeyDown}
-              placeholder="输入问题，@ 引用分组..."
-              disabled={loading}
+              placeholder={
+                aiReady
+                  ? "输入问题，@ 引用分组..."
+                  : "请先配置 AI API Key..."
+              }
+              disabled={loading || !aiReady}
               rows={2}
               className="flex-1 resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-blue-400"
             />
             <button
               type="submit"
-              disabled={loading || !input.trim() || activeMention != null}
+              disabled={loading || !input.trim() || activeMention != null || !aiReady}
               className="self-end rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
               发送
             </button>
           </div>
+          {!aiReady && aiConfigLoaded && (
+            <button
+              type="button"
+              onClick={onOpenAiConfig}
+              className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-300"
+            >
+              打开 AI 配置
+            </button>
+          )}
         </form>
         <div className="flex justify-start px-3 pb-2">
           <IconButton

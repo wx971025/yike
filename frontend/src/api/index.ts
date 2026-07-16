@@ -11,7 +11,8 @@ import type {
   ReviewedTodayResponse,
   Skill,
   SkillCatalog,
-  AiConfig,
+  AiConfigItem,
+  AiConfigStatus,
   User,
   Word,
 } from "../types";
@@ -34,13 +35,36 @@ export const authApi = {
   me: () => api.get<User>("/auth/me"),
   updateProfile: (payload: { nickname?: string; avatar?: string }) =>
     api.put<User>("/auth/profile", payload),
-  getAiConfig: () => api.get<AiConfig>("/auth/ai-config"),
-  updateAiConfig: (payload: {
-    use_custom?: boolean;
-    base_url?: string;
-    api_key?: string;
-    model?: string;
-  }) => api.put<AiConfig>("/auth/ai-config", payload),
+  getAiConfigStatus: () => api.get<AiConfigStatus>("/auth/ai-config"),
+  listAiConfigs: () => api.get<AiConfigItem[]>("/auth/ai-configs"),
+  createAiConfig: (payload: {
+    title: string;
+    base_url: string;
+    api_key: string;
+    model: string;
+  }) => api.post<AiConfigItem>("/auth/ai-configs", payload),
+  updateAiConfig: (
+    id: number,
+    payload: {
+      title?: string;
+      base_url?: string;
+      api_key?: string;
+      model?: string;
+    }
+  ) => api.put<AiConfigItem>(`/auth/ai-configs/${id}`, payload),
+  deleteAiConfig: (id: number) => api.delete(`/auth/ai-configs/${id}`),
+  activateAiConfig: (id: number) =>
+    api.post<AiConfigItem>(`/auth/ai-configs/${id}/activate`),
+  revealAiConfigApiKey: (id: number) =>
+    api.get<{ api_key: string }>(`/auth/ai-configs/${id}/api-key`),
+  testAiConfig: (
+    id: number,
+    payload?: {
+      base_url?: string;
+      api_key?: string;
+      model?: string;
+    }
+  ) => api.post<AiConfigItem>(`/auth/ai-configs/${id}/test`, payload ?? {}),
 };
 
 export const groupApi = {

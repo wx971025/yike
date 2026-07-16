@@ -146,3 +146,19 @@ export const ClearContextIcon = () => (
     <path d="M4 6v4h4" />
   </svg>
 );
+
+export const EyeIcon = () => (
+  <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2.5 10s2.5-4.5 7.5-4.5S17.5 10 17.5 10s-2.5 4.5-7.5 4.5S2.5 10 2.5 10z" />
+    <circle cx="10" cy="10" r="2.2" />
+  </svg>
+);
+
+export const EyeOffIcon = () => (
+  <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 3l14 14" />
+    <path d="M8.2 8.2A2.2 2.2 0 0 0 10 12.2" />
+    <path d="M6.1 6.7C4.7 7.7 3.6 9.2 2.5 10c0 0 2.5 4.5 7.5 4.5 1 0 1.9-.2 2.7-.5" />
+    <path d="M11.7 5.8C12.4 5.6 13.2 5.5 14 5.5c5 0 7.5 4.5 7.5 4.5s-.8 1.4-2.2 2.6" />
+  </svg>
+);

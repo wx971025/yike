@@ -6,6 +6,8 @@ import re
 import httpx
 from fastapi import HTTPException, status
 
+from sqlalchemy.orm import Session
+
 from ..models import User
 from .ai_chat import OPENAI_DISABLE_THINKING, _parse_api_error, resolve_ai_config
 
@@ -78,6 +80,7 @@ def _parse_example_json(content: str) -> dict[str, str]:
 
 async def generate_word_example(
     user: User,
+    db: Session,
     *,
     word: str,
     meaning: str = "",
@@ -92,7 +95,7 @@ async def generate_word_example(
             detail="单词不能为空",
         )
 
-    base_url, api_key, model = resolve_ai_config(user)
+    base_url, api_key, model = resolve_ai_config(user, db)
     body: dict = {
         "model": model,
         "messages": [

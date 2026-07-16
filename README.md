@@ -165,13 +165,12 @@ flowchart LR
 git clone https://github.com/wx971025/yike.git
 cd yike
 
-cp .env.example .env
-# 编辑 .env，至少配置 JWT_SECRET；如需 AI 功能，配置 OPENAI_* 相关项
-
 ./deploy.sh
 ```
 
 启动后访问：**http://localhost:10001**
+
+首次使用 AI 功能前，请在应用内 **设置 → AI 配置** 填写 API Key 并通过连通测试。
 
 ### 部署脚本
 
@@ -193,15 +192,11 @@ JWT_SECRET=your-strong-random-secret ./deploy.sh
 
 ## ⚙️ 环境变量
 
-参考 [`.env.example`](.env.example)：
-
 | 变量 | 说明 | 必填 |
 |------|------|------|
 | `JWT_SECRET` | JWT 签名密钥 | 生产环境必填 |
-| `OPENAI_BASE_URL` | AI 接口地址（OpenAI 兼容） | 可选 |
-| `OPENAI_API_KEY` | AI API Key | 可选 |
-| `OPENAI_MODEL` | 模型名称 | 可选 |
-| `OPENAI_DISABLE_THINKING` | 禁用思考链输出 | 可选 |
+
+AI 接口（Base URL、API Key、Model）请在应用内 **设置 → AI 配置** 中填写，并通过连通测试后使用。
 
 ---
 

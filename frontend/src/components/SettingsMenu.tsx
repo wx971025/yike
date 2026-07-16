@@ -4,9 +4,12 @@ import { useAuth } from "../context/AuthContext";
 import { useTheme, type Theme } from "../context/ThemeContext";
 import { displayName } from "../utils/userProfile";
 import { GearIcon } from "./ItemIcons";
-import AiConfigModal from "./AiConfigModal";
 import UserAvatar from "./UserAvatar";
 import UserProfileModal from "./UserProfileModal";
+
+interface SettingsMenuProps {
+  onOpenAiConfig: () => void;
+}
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -40,12 +43,11 @@ function ThemeToggle() {
   );
 }
 
-export default function SettingsMenu() {
+export default function SettingsMenu({ onOpenAiConfig }: SettingsMenuProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [aiConfigModalOpen, setAiConfigModalOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -79,7 +81,7 @@ export default function SettingsMenu() {
                 type="button"
                 onClick={() => {
                   setOpen(false);
-                  setAiConfigModalOpen(true);
+                  onOpenAiConfig();
                 }}
                 className="w-full px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
               >
@@ -125,9 +127,6 @@ export default function SettingsMenu() {
 
       {profileModalOpen && (
         <UserProfileModal onClose={() => setProfileModalOpen(false)} />
-      )}
-      {aiConfigModalOpen && (
-        <AiConfigModal onClose={() => setAiConfigModalOpen(false)} />
       )}
     </>
   );
