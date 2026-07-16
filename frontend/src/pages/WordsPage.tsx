@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { dictionaryApi, wordApi, type WordPayload } from "../api";
+import ConfusablePairsPanel from "../components/ConfusablePairsPanel";
+import ConfusablePairCreateModal from "../components/ConfusablePairCreateModal";
 import BulkGroupEditModal from "../components/BulkGroupEditModal";
 import ItemActionsMenu from "../components/ItemActionsMenu";
 import PageGroupFilter from "../components/PageGroupFilter";
@@ -13,10 +15,15 @@ import {
   LeavePlanIcon,
 } from "../components/ItemIcons";
 import SearchBox from "../components/SearchBox";
+import WordExamplesEditor, {
+  sanitizeWordExamples,
+  wordExamplesFromWord,
+} from "../components/WordExamplesEditor";
 import SortableHeader from "../components/SortableHeader";
 import { useGroups } from "../context/GroupContext";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { getReviewStageOptions, type Word } from "../types";
+import { UNGROUPED_GROUP_ID, isGroupFilterActive } from "../utils/groupFilter";
 import { getNextReviewDate, getPlanCardStatusMeta } from "../utils/reviewSchedule";
 import {
   sortByCreatedAt,
@@ -42,6 +49,8 @@ const emptyForm: WordPayload = {
   pos: "",
   meaning: "",
   example: "",
+  example_translation: "",
+  examples: [{ en: "", zh: "" }],
   group_id: null,
   stage_index: 0,
 };
@@ -133,13 +142,45 @@ function CollapsibleMeaning({ text }: { text: string }) {
   );
 }
 
+function WordExamplesDisplay({
+  word,
+}: {
+  word: {
+    examples?: { en: string; zh: string }[];
+    example?: string;
+    example_translation?: string;
+  };
+}) {
+  const examples = wordExamplesFromWord(word).filter(
+    (item) => item.en.trim() || item.zh.trim()
+  );
+  if (examples.length === 0) return null;
+
+  return (
+    <div className="mt-2 space-y-2 border-t border-slate-100 pt-2 dark:border-slate-800">
+      {examples.map((item, index) => (
+        <div key={index}>
+          {item.en.trim() && (
+            <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+              {item.en}
+            </p>
+          )}
+          {item.zh.trim() && (
+            <p className="mt-0.5 text-xs leading-relaxed text-slate-400 dark:text-slate-500">
+              {item.zh}
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function WordsPage() {
-  const {
-    selectedGroupId,
-    groups,
-    memoryModeForGroupId,
-    totalStagesForGroupId,
-  } = useGroups();
+  const { groups, memoryModeForGroupId, totalStagesForGroupId } = useGroups();
+  const [pageTab, setPageTab] = useState<"words" | "confusable">("words");
+  const [createConfusableOpen, setCreateConfusableOpen] = useState(false);
+  const [groupFilterIds, setGroupFilterIds] = useState<Set<number>>(new Set());
   const [words, setWords] = useState<Word[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -177,6 +218,13 @@ export default function WordsPage() {
   const [batchWordsToAdd, setBatchWordsToAdd] = useState<string[]>([]);
   const [batchHighlightedMissing, setBatchHighlightedMissing] = useState<string[]>([]);
 
+  const defaultBatchGroupId = useMemo(() => {
+    const realIds = Array.from(groupFilterIds).filter(
+      (id) => id !== UNGROUPED_GROUP_ID
+    );
+    return realIds.length === 1 ? realIds[0] : null;
+  }, [groupFilterIds]);
+
   const batchMemoryMode = memoryModeForGroupId(batchGroupId);
   const batchStageOptions = useMemo(
     () => getReviewStageOptions(batchMemoryMode),
@@ -196,7 +244,7 @@ export default function WordsPage() {
     setLoading(true);
     try {
       const res = await wordApi.list(
-        selectedGroupId,
+        groupFilterIds,
         null,
         debouncedSearch || undefined
       );
@@ -204,7 +252,7 @@ export default function WordsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedGroupId, debouncedSearch]);
+  }, [groupFilterIds, debouncedSearch]);
 
   useEffect(() => {
     load();
@@ -358,7 +406,7 @@ export default function WordsPage() {
   const openAddWords = () => {
     setBatchText("");
     setBatchError("");
-    setBatchGroupId(selectedGroupId);
+    setBatchGroupId(defaultBatchGroupId);
     setBatchJoinPlan(true);
     setBatchStageIndex(0);
     setBatchMissingConfirmOpen(false);
@@ -419,6 +467,8 @@ export default function WordsPage() {
           pos: "",
           meaning: "",
           example: "",
+          example_translation: "",
+          examples: [],
           group_id: batchGroupId,
           stage_index: batchJoinPlan ? batchStageIndex : 0,
           in_plan: batchJoinPlan,
@@ -500,6 +550,8 @@ export default function WordsPage() {
       pos: w.pos,
       meaning: w.meaning,
       example: w.example,
+      example_translation: w.example_translation,
+      examples: wordExamplesFromWord(w),
       group_id: w.group_id,
     });
     setModalOpen(true);
@@ -510,7 +562,13 @@ export default function WordsPage() {
     if (editingId == null) return;
     setFormError("");
     try {
-      await wordApi.update(editingId, form);
+      const examples = sanitizeWordExamples(form.examples);
+      await wordApi.update(editingId, {
+        ...form,
+        examples,
+        example: examples[0]?.en ?? "",
+        example_translation: examples[0]?.zh ?? "",
+      });
       setModalOpen(false);
       await load();
       window.dispatchEvent(new CustomEvent("app-data-changed"));
@@ -545,7 +603,7 @@ export default function WordsPage() {
     setBulkLoading(true);
     try {
       const res = await wordApi.joinPlanAll(
-        selectedGroupId,
+        groupFilterIds,
         debouncedSearch || undefined
       );
       if (res.data.count > 0) {
@@ -561,7 +619,7 @@ export default function WordsPage() {
     setBulkLoading(true);
     try {
       const res = await wordApi.leavePlanAll(
-        selectedGroupId,
+        groupFilterIds,
         debouncedSearch || undefined
       );
       if (res.data.count > 0) {
@@ -575,28 +633,75 @@ export default function WordsPage() {
 
   const inPlanCount = words.filter((w) => w.in_plan).length;
   const notInPlanCount = words.length - inPlanCount;
+  const emptyMessage = debouncedSearch
+    ? "没有匹配的单词"
+    : isGroupFilterActive(groupFilterIds)
+      ? "当前筛选条件下没有单词"
+      : "还没有单词，点击右上角添加单词开始录入";
 
   return (
     <div className={selectMode ? "pb-24" : undefined}>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">单词卡片</h1>
+          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">单词卡片管理</h1>
           <p className="text-sm text-slate-400 dark:text-slate-500">
-            单词加入复习计划后，今日复习将根据释义拼写单词
+            {pageTab === "words"
+              ? "单词加入复习计划后，今日复习将根据释义拼写单词"
+              : "易混词对在复习拼错时可选择添加，可对比查看并加入计划"}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-3">
-          <PageGroupFilter />
-          <button
-            type="button"
-            onClick={openAddWords}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
-          >
-            添加单词
-          </button>
-        </div>
+        {pageTab === "words" ? (
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={openAddWords}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
+            >
+              添加单词
+            </button>
+          </div>
+        ) : (
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setCreateConfusableOpen(true)}
+              className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-rose-700"
+            >
+              增加易混词卡片
+            </button>
+          </div>
+        )}
       </div>
 
+      <div className="mb-5 flex gap-2 border-b border-slate-200 dark:border-slate-700">
+        <button
+          type="button"
+          onClick={() => setPageTab("words")}
+          className={`relative -mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition ${
+            pageTab === "words"
+              ? "border-violet-600 text-violet-700"
+              : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+          }`}
+        >
+          单词卡片
+        </button>
+        <button
+          type="button"
+          onClick={() => setPageTab("confusable")}
+          className={`relative -mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition ${
+            pageTab === "confusable"
+              ? "border-rose-600 text-rose-700"
+              : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+          }`}
+        >
+          易混词卡片
+        </button>
+      </div>
+
+      {pageTab === "confusable" ? (
+        <ConfusablePairsPanel />
+      ) : (
+        <>
       <div className="mb-4">
         <SearchBox
           value={search}
@@ -607,10 +712,6 @@ export default function WordsPage() {
 
       {loading ? (
         <p className="text-slate-400 dark:text-slate-500">加载中...</p>
-      ) : words.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 py-16 text-center text-slate-400 dark:text-slate-500">
-          {debouncedSearch ? "没有匹配的单词" : "还没有单词，点击右上角添加单词开始录入"}
-        </div>
       ) : (
         <>
           <div className="mb-2 flex items-center justify-between gap-3">
@@ -636,8 +737,17 @@ export default function WordsPage() {
               >
                 {bulkLoading ? "处理中..." : "全部移出计划"}
               </button>
+              <PageGroupFilter
+                selectedIds={groupFilterIds}
+                onChange={setGroupFilterIds}
+              />
             </div>
           </div>
+          {words.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 py-16 text-center text-slate-400 dark:text-slate-500">
+              {emptyMessage}
+            </div>
+          ) : (
           <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
             <table className="w-full min-w-[52rem] table-fixed text-sm">
               <thead className="bg-slate-50 dark:bg-slate-800/60 text-left text-slate-500 dark:text-slate-400">
@@ -707,6 +817,7 @@ export default function WordsPage() {
                         <div className="mt-1">
                           <CollapsibleMeaning text={w.meaning} />
                         </div>
+                        <WordExamplesDisplay word={w} />
                       </td>
                       <td className="px-4 py-3 align-top text-slate-500 dark:text-slate-400">
                         {groupName(w.group_id)}
@@ -774,6 +885,7 @@ export default function WordsPage() {
               </tbody>
             </table>
           </div>
+          )}
         </>
       )}
 
@@ -1017,14 +1129,13 @@ export default function WordsPage() {
               rows={2}
             />
 
-            <label className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">
-              例句 <span className="font-normal text-slate-400 dark:text-slate-500">（可选，留空自动查词典）</span>
-            </label>
-            <textarea
-              className="mb-3 w-full rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none"
-              value={form.example}
-              onChange={(e) => setForm({ ...form, example: e.target.value })}
-              rows={2}
+            <WordExamplesEditor
+              word={form.word}
+              meaning={form.meaning}
+              pos={form.pos}
+              phonetic={form.phonetic}
+              examples={form.examples}
+              onChange={(examples) => setForm({ ...form, examples })}
             />
 
             <label className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">
@@ -1068,6 +1179,13 @@ export default function WordsPage() {
           </form>
         </div>
       )}
+        </>
+      )}
+
+      <ConfusablePairCreateModal
+        open={createConfusableOpen}
+        onClose={() => setCreateConfusableOpen(false)}
+      />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -6,13 +6,15 @@ from ..deps import get_current_user
 from ..models import Group, User, Word
 from ..schemas import BulkPlanResult, WordCreate, WordOut, WordUpdate
 from ..dates import app_today
+from ..services.group_filter import apply_group_ids_filter
+from ..services.word_examples import apply_word_examples, example_items_from_payload
 from ..services.words import (
     api_duplicate_word_detail,
     enrich_word_fields,
     find_word_in_group,
 )
 from ..services.memory_schedule import last_stage_index, normalize_memory_mode
-from ..services.review import learned_at_for_stage, mark_reviewed, skip_today
+from ..services.review import learned_at_for_stage, mark_reviewed, reset_to_first_stage, skip_today
 
 router = APIRouter(prefix="/api/words", tags=["words"])
 
@@ -49,12 +51,12 @@ def _filter_words_query(
     user: User,
     db: Session,
     group_id: int | None,
+    group_ids: list[int] | None,
     q: str | None,
     in_plan: bool | None,
 ):
     query = db.query(Word).filter(Word.user_id == user.id)
-    if group_id is not None:
-        query = query.filter(Word.group_id == group_id)
+    query = apply_group_ids_filter(query, Word.group_id, group_id, group_ids)
     if in_plan is not None:
         query = query.filter(Word.in_plan == in_plan)
     if q:
@@ -70,13 +72,14 @@ def _filter_words_query(
 @router.get("", response_model=list[WordOut])
 def list_words(
     group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     in_plan: bool | None = None,
     q: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     return (
-        _filter_words_query(user, db, group_id, q, in_plan)
+        _filter_words_query(user, db, group_id, group_ids, q, in_plan)
         .order_by(Word.word.asc())
         .all()
     )
@@ -89,12 +92,13 @@ def create_word(
     db: Session = Depends(get_db),
 ):
     _validate_group(payload.group_id, user, db)
-    word_text, phonetic, pos, meaning, example, dict_found = enrich_word_fields(
+    word_text, phonetic, pos, meaning, example, example_translation, dict_found = enrich_word_fields(
         payload.word,
         phonetic=payload.phonetic,
         pos=payload.pos,
         meaning=payload.meaning,
         example=payload.example,
+        example_translation=payload.example_translation,
     )
     if not meaning:
         detail = (
@@ -124,10 +128,17 @@ def create_word(
         phonetic=phonetic,
         pos=pos,
         meaning=meaning,
-        example=example,
+        example="",
+        example_translation="",
         learned_at=learned_at,
         stage_index=stage_index,
         in_plan=payload.in_plan,
+    )
+    apply_word_examples(
+        word,
+        example_items_from_payload(payload.examples),
+        legacy_example=example,
+        legacy_translation=example_translation,
     )
     db.add(word)
     db.commit()
@@ -138,11 +149,12 @@ def create_word(
 @router.post("/join-plan-all", response_model=BulkPlanResult)
 def join_plan_all(
     group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     q: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    words = _filter_words_query(user, db, group_id, q, in_plan=False).all()
+    words = _filter_words_query(user, db, group_id, group_ids, q, in_plan=False).all()
     today = app_today()
     for word in words:
         word.in_plan = True
@@ -159,11 +171,12 @@ def join_plan_all(
 @router.post("/leave-plan-all", response_model=BulkPlanResult)
 def leave_plan_all(
     group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     q: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    words = _filter_words_query(user, db, group_id, q, in_plan=True).all()
+    words = _filter_words_query(user, db, group_id, group_ids, q, in_plan=True).all()
     for word in words:
         word.in_plan = False
     db.commit()
@@ -173,11 +186,12 @@ def leave_plan_all(
 @router.post("/delete-all", response_model=BulkPlanResult)
 def delete_all(
     group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     q: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    words = _filter_words_query(user, db, group_id, q, in_plan=None).all()
+    words = _filter_words_query(user, db, group_id, group_ids, q, in_plan=None).all()
     count = len(words)
     for word in words:
         db.delete(word)
@@ -215,6 +229,16 @@ def update_word(
         data["pos"] = data["pos"].strip()
     if "example" in data and data["example"] is not None:
         data["example"] = data["example"].strip()
+    if "example_translation" in data and data["example_translation"] is not None:
+        data["example_translation"] = data["example_translation"].strip()
+    if "examples" in data:
+        examples_payload = data.pop("examples")
+        apply_word_examples(
+            word,
+            example_items_from_payload(examples_payload),
+            legacy_example=data.get("example", word.example),
+            legacy_translation=data.get("example_translation", word.example_translation),
+        )
     if "stage_index" in data:
         group_id = data.get("group_id", word.group_id)
         memory_mode = _memory_mode_for_group(group_id, user, db)
@@ -284,6 +308,27 @@ def skip_word(
             status_code=status.HTTP_400_BAD_REQUEST, detail="该单词已完成全部复习"
         )
     skip_today(word)
+    db.commit()
+    db.refresh(word)
+    return word
+
+
+@router.post("/{word_id}/reset-stage", response_model=WordOut)
+def reset_word_stage(
+    word_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    word = _get_owned_word(word_id, user, db)
+    if not word.in_plan:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="该单词未加入复习计划"
+        )
+    if word.status == "mastered":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="该单词已完成全部复习"
+        )
+    reset_to_first_stage(word)
     db.commit()
     db.refresh(word)
     return word

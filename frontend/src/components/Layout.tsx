@@ -4,9 +4,8 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import AiAssistant from "./AiAssistant";
 import SettingsMenu from "./SettingsMenu";
 import { ChevronDownIcon } from "./ItemIcons";
-import { reviewApi } from "../api";
+import { reviewApi, reminderApi } from "../api";
 import {
-  useWordReviewUi,
   WordReviewUiProvider,
 } from "../context/WordReviewUiContext";
 
@@ -21,10 +20,11 @@ const topNavItems = [
 const cardNavGroup = {
   label: "卡片管理",
   icon: "📚",
-  paths: ["/items", "/words"],
+  paths: ["/items", "/words", "/reminders"],
   children: [
-    { to: "/items", label: "普通卡片" },
+    { to: "/items", label: "记忆卡片" },
     { to: "/words", label: "单词卡片" },
+    { to: "/reminders", label: "事项卡片" },
   ],
 };
 
@@ -96,17 +96,23 @@ function LayoutShell() {
   const location = useLocation();
   const [aiOpen, setAiOpen] = useState(false);
   const [dueCount, setDueCount] = useState(0);
-  const { focusMode } = useWordReviewUi();
   const isCardSection = cardNavGroup.paths.includes(location.pathname);
   const [cardsOpen, setCardsOpen] = useState(isCardSection);
 
   const loadDueCount = useCallback(async () => {
     try {
-      const [cards, words] = await Promise.all([
+      const [cards, words, confusable, reminders] = await Promise.all([
         reviewApi.today(),
         reviewApi.todayWords(),
+        reviewApi.todayConfusablePairs(),
+        reminderApi.today(),
       ]);
-      setDueCount(cards.data.length + words.data.length);
+      setDueCount(
+        cards.data.length +
+          words.data.length +
+          confusable.data.length +
+          reminders.data.length
+      );
     } catch {
       setDueCount(0);
     }
@@ -122,10 +128,6 @@ function LayoutShell() {
   useEffect(() => {
     if (isCardSection) setCardsOpen(true);
   }, [isCardSection]);
-
-  useEffect(() => {
-    if (focusMode) setAiOpen(false);
-  }, [focusMode]);
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -201,26 +203,14 @@ function LayoutShell() {
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <main
-          className={`min-h-0 flex-1 overflow-y-auto ${
-            focusMode ? "flex flex-col px-6 py-3" : "px-6 py-6"
-          }`}
-        >
-          <div
-            className={
-              focusMode
-                ? "flex min-h-0 flex-1 flex-col"
-                : "mx-auto max-w-5xl"
-            }
-          >
+        <main className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+          <div className="mx-auto max-w-5xl">
             <Outlet />
           </div>
         </main>
       </div>
 
-      {!focusMode && (
-        <AiAssistant collapsed={!aiOpen} onToggle={() => setAiOpen((v) => !v)} />
-      )}
+      <AiAssistant collapsed={!aiOpen} onToggle={() => setAiOpen((v) => !v)} />
     </div>
   );
 }

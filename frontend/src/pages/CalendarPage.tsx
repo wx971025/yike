@@ -2,27 +2,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { reviewApi } from "../api";
 import ReviewCalendar from "../components/ReviewCalendar";
 import { CardKindBadge } from "../components/CardKindBadge";
+import PageGroupFilter from "../components/PageGroupFilter";
 import { useGroups } from "../context/GroupContext";
 import type { CalendarDay } from "../types";
+import { groupFilterLabel } from "../utils/groupFilter";
 import { todayStr } from "../utils/reviewSchedule";
 
 export default function CalendarPage() {
-  const { selectedGroupId, groups } = useGroups();
+  const { groups } = useGroups();
+  const [groupFilterIds, setGroupFilterIds] = useState<Set<number>>(new Set());
   const [days, setDays] = useState<CalendarDay[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(todayStr());
   const rangeRef = useRef<{ start: string; end: string } | null>(null);
 
-  const groupLabel =
-    selectedGroupId == null
-      ? "全部分组"
-      : groups.find((g) => g.id === selectedGroupId)?.name ?? "";
+  const groupLabel = groupFilterLabel(groupFilterIds, groups);
 
   const fetchRange = useCallback(
     async (start: string, end: string) => {
-      const res = await reviewApi.calendar(start, end, selectedGroupId);
+      const res = await reviewApi.calendar(start, end, groupFilterIds);
       setDays(res.data.events);
     },
-    [selectedGroupId]
+    [groupFilterIds]
   );
 
   const handleRangeChange = useCallback(
@@ -48,11 +48,17 @@ export default function CalendarPage() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">事项日历</h1>
-        <p className="text-sm text-slate-400 dark:text-slate-500">
-          当前显示：{groupLabel} 的艾宾浩斯复习路径，点击日期查看当天要复习的卡片
-        </p>
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">事项日历</h1>
+          <p className="text-sm text-slate-400 dark:text-slate-500">
+            当前显示：{groupLabel} 的复习与事项提醒，点击日期查看当天安排
+          </p>
+        </div>
+        <PageGroupFilter
+          selectedIds={groupFilterIds}
+          onChange={setGroupFilterIds}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
@@ -73,8 +79,8 @@ export default function CalendarPage() {
             <p className="mb-4 text-xs text-slate-400 dark:text-slate-500">
               {selectedDate
                 ? selectedDayItems.length > 0
-                  ? `共 ${selectedDayItems.length} 张卡片待复习`
-                  : "当天没有复习安排"
+                  ? `共 ${selectedDayItems.length} 项安排`
+                  : "当天没有安排"
                 : "点击日历中的日期查看详情"}
             </p>
           </div>
@@ -82,7 +88,7 @@ export default function CalendarPage() {
           <div className="min-h-0 flex-1 overflow-y-auto">
             {selectedDate && selectedDayItems.length === 0 && (
               <div className="rounded-xl border border-dashed border-slate-200 py-10 text-center text-sm text-slate-400 dark:border-slate-700 dark:text-slate-500">
-                暂无复习卡片
+                暂无安排
               </div>
             )}
 
@@ -97,9 +103,15 @@ export default function CalendarPage() {
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     <CardKindBadge kind={item.kind} />
-                    <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      第 {item.stage} 轮复习
-                    </span>
+                    {item.kind === "reminder" ? (
+                      <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                        事项提醒
+                      </span>
+                    ) : (
+                      <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        第 {item.stage} 轮复习
+                      </span>
+                    )}
                   </div>
                 </li>
               ))}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { itemApi, wordApi } from "../api";
+import { itemApi, wordApi, reminderApi } from "../api";
 import ForgettingCurveModal from "../components/ForgettingCurveModal";
 import PageGroupFilter from "../components/PageGroupFilter";
 import PlanMultiSelectBar, {
@@ -16,8 +16,10 @@ import SearchBox from "../components/SearchBox";
 import SortableHeader from "../components/SortableHeader";
 import { useGroups } from "../context/GroupContext";
 import { useMultiSelect } from "../hooks/useMultiSelect";
-import { getReviewStageOptions, type Item, type Word } from "../types";
+import { getReviewStageOptions, type Item, type Reminder, type Word } from "../types";
+import { recurrenceLabel } from "../utils/reminderSchedule";
 import { getNextReviewDate, getPlanCardStatusMeta } from "../utils/reviewSchedule";
+import { isGroupFilterActive } from "../utils/groupFilter";
 import {
   sortByNextReviewDate,
   sortByTitle,
@@ -26,18 +28,20 @@ import {
   type SortDirection,
 } from "../utils/sort";
 
-type PlanTab = "item" | "word";
+type PlanTab = "item" | "word" | "reminder";
 
 export default function PlanItemsPage() {
   const {
-    selectedGroupId,
     groups,
     memoryModeForGroupId,
     totalStagesForGroupId,
   } = useGroups();
   const [activeTab, setActiveTab] = useState<PlanTab>("item");
+  const [itemGroupFilterIds, setItemGroupFilterIds] = useState<Set<number>>(new Set());
+  const [wordGroupFilterIds, setWordGroupFilterIds] = useState<Set<number>>(new Set());
   const [items, setItems] = useState<Item[]>([]);
   const [words, setWords] = useState<Word[]>([]);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
   const [curveItem, setCurveItem] = useState<Item | null>(null);
   const [search, setSearch] = useState("");
@@ -66,6 +70,11 @@ export default function PlanItemsPage() {
     isPartiallySelected,
   } = useMultiSelect();
 
+  const activeGroupFilterIds =
+    activeTab === "item" ? itemGroupFilterIds : wordGroupFilterIds;
+  const setActiveGroupFilterIds =
+    activeTab === "item" ? setItemGroupFilterIds : setWordGroupFilterIds;
+
   const groupName = (id: number | null) =>
     id == null ? "无分组" : groups.find((g) => g.id === id)?.name ?? "未知分组";
 
@@ -76,30 +85,35 @@ export default function PlanItemsPage() {
 
   const loadItems = useCallback(async () => {
     const res = await itemApi.list(
-      selectedGroupId,
+      itemGroupFilterIds,
       true,
       debouncedSearch || undefined
     );
     setItems(res.data);
-  }, [selectedGroupId, debouncedSearch]);
+  }, [itemGroupFilterIds, debouncedSearch]);
 
   const loadWords = useCallback(async () => {
     const res = await wordApi.list(
-      selectedGroupId,
+      wordGroupFilterIds,
       true,
       debouncedSearch || undefined
     );
     setWords(res.data);
-  }, [selectedGroupId, debouncedSearch]);
+  }, [wordGroupFilterIds, debouncedSearch]);
+
+  const loadReminders = useCallback(async () => {
+    const res = await reminderApi.list(true, debouncedSearch || undefined);
+    setReminders(res.data);
+  }, [debouncedSearch]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([loadItems(), loadWords()]);
+      await Promise.all([loadItems(), loadWords(), loadReminders()]);
     } finally {
       setLoading(false);
     }
-  }, [loadItems, loadWords]);
+  }, [loadItems, loadWords, loadReminders]);
 
   useEffect(() => {
     load();
@@ -147,12 +161,22 @@ export default function PlanItemsPage() {
     return sortByWord(words, sortDirection);
   }, [words, wordSortField, sortDirection, memoryModeForGroupId]);
 
+  const sortedReminders = useMemo(() => {
+    const sorted = [...reminders].sort((a, b) =>
+      a.remind_date.localeCompare(b.remind_date)
+    );
+    return sortDirection === "desc" ? sorted.reverse() : sorted;
+  }, [reminders, sortDirection]);
+
   const visibleIds = useMemo(() => {
     if (activeTab === "item") {
       return sortedItems.map((item) => item.id);
     }
-    return sortedWords.map((word) => word.id);
-  }, [activeTab, sortedItems, sortedWords]);
+    if (activeTab === "word") {
+      return sortedWords.map((word) => word.id);
+    }
+    return sortedReminders.map((reminder) => reminder.id);
+  }, [activeTab, sortedItems, sortedWords, sortedReminders]);
 
   useEffect(() => {
     exitSelectMode();
@@ -179,25 +203,37 @@ export default function PlanItemsPage() {
     window.dispatchEvent(new CustomEvent("app-data-changed"));
   };
 
+  const handleLeaveReminderPlan = async (id: number) => {
+    await reminderApi.leavePlan(id);
+    await loadReminders();
+    window.dispatchEvent(new CustomEvent("app-data-changed"));
+  };
+
   const handleLeaveAll = async () => {
     setBulkLoading(true);
     try {
       if (activeTab === "item") {
         const res = await itemApi.leavePlanAll(
-          selectedGroupId,
+          itemGroupFilterIds,
           debouncedSearch || undefined
         );
         if (res.data.count > 0) {
           await loadItems();
           window.dispatchEvent(new CustomEvent("app-data-changed"));
         }
-      } else {
+      } else if (activeTab === "word") {
         const res = await wordApi.leavePlanAll(
-          selectedGroupId,
+          wordGroupFilterIds,
           debouncedSearch || undefined
         );
         if (res.data.count > 0) {
           await loadWords();
+          window.dispatchEvent(new CustomEvent("app-data-changed"));
+        }
+      } else {
+        const res = await reminderApi.leavePlanAll(debouncedSearch || undefined);
+        if (res.data.count > 0) {
+          await loadReminders();
           window.dispatchEvent(new CustomEvent("app-data-changed"));
         }
       }
@@ -219,13 +255,24 @@ export default function PlanItemsPage() {
           await loadItems();
           window.dispatchEvent(new CustomEvent("app-data-changed"));
         }
-      } else {
+      } else if (activeTab === "word") {
         const targets = sortedWords.filter((word) => selectedIds.has(word.id));
         for (const word of targets) {
           await wordApi.leavePlan(word.id);
         }
         if (targets.length > 0) {
           await loadWords();
+          window.dispatchEvent(new CustomEvent("app-data-changed"));
+        }
+      } else {
+        const targets = sortedReminders.filter((reminder) =>
+          selectedIds.has(reminder.id)
+        );
+        for (const reminder of targets) {
+          await reminderApi.leavePlan(reminder.id);
+        }
+        if (targets.length > 0) {
+          await loadReminders();
           window.dispatchEvent(new CustomEvent("app-data-changed"));
         }
       }
@@ -284,15 +331,32 @@ export default function PlanItemsPage() {
   };
 
   const stageEditTarget = stageEditItem ?? stageEditWord;
-  const currentCount = activeTab === "item" ? items.length : words.length;
+  const currentCount =
+    activeTab === "item"
+      ? items.length
+      : activeTab === "word"
+        ? words.length
+        : reminders.length;
   const searchPlaceholder =
-    activeTab === "item" ? "按标题搜索卡片..." : "按单词或释义搜索...";
+    activeTab === "item"
+      ? "按标题搜索卡片..."
+      : activeTab === "word"
+        ? "按单词或释义搜索..."
+        : "按标题搜索事项...";
   const emptyMessage = debouncedSearch
     ? activeTab === "item"
       ? "没有匹配的计划卡片"
-      : "没有匹配的计划单词"
+      : activeTab === "word"
+        ? "没有匹配的计划单词"
+        : "没有匹配的计划事项"
+    : activeTab === "reminder"
+      ? "还没有加入计划的事项，可在「事项卡片」页加入计划"
+    : isGroupFilterActive(activeGroupFilterIds)
+      ? activeTab === "item"
+        ? "当前筛选条件下没有计划卡片"
+        : "当前筛选条件下没有计划单词"
     : activeTab === "item"
-      ? "还没有加入复习计划的普通卡片，可在「普通卡片」页加入计划"
+      ? "还没有加入复习计划的记忆卡片，可在「记忆卡片」页加入计划"
       : "还没有加入复习计划的单词，可在「单词卡片」页加入计划";
 
   return (
@@ -303,18 +367,8 @@ export default function PlanItemsPage() {
             计划管理
           </h1>
           <p className="text-sm text-slate-400 dark:text-slate-500">
-            管理已加入复习计划的普通卡片与单词，只有在此列表中的内容才会收到复习提醒
+            管理已加入计划的记忆卡片、单词与事项，只有在此列表中的内容才会收到提醒
           </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-3">
-          <PageGroupFilter />
-          <button
-            onClick={handleLeaveAll}
-            disabled={bulkLoading || currentCount === 0 || selectMode}
-            className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 transition hover:bg-orange-100 disabled:opacity-50"
-          >
-            {bulkLoading ? "处理中..." : "全部移除"}
-          </button>
         </div>
       </div>
 
@@ -328,7 +382,7 @@ export default function PlanItemsPage() {
               : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200"
           }`}
         >
-          普通卡片
+          记忆卡片
           <span
             className={`rounded-full px-2 py-0.5 text-xs ${
               activeTab === "item"
@@ -359,6 +413,26 @@ export default function PlanItemsPage() {
             {words.length}
           </span>
         </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("reminder")}
+          className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
+            activeTab === "reminder"
+              ? "bg-amber-100 text-amber-800"
+              : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200"
+          }`}
+        >
+          事项卡片
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs ${
+              activeTab === "reminder"
+                ? "bg-amber-200 text-amber-900"
+                : "bg-white text-slate-500 dark:bg-slate-900 dark:text-slate-400"
+            }`}
+          >
+            {reminders.length}
+          </span>
+        </button>
       </div>
 
       <div className="mb-4">
@@ -369,12 +443,27 @@ export default function PlanItemsPage() {
         />
       </div>
 
-      {!loading && currentCount > 0 && (
+      {!loading && (
         <div className="mb-2 flex items-center justify-end">
-          <MultiSelectToggleButton
-            active={selectMode}
-            onClick={toggleSelectMode}
-          />
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <MultiSelectToggleButton
+              active={selectMode}
+              onClick={toggleSelectMode}
+            />
+            <button
+              onClick={handleLeaveAll}
+              disabled={bulkLoading || currentCount === 0 || selectMode}
+              className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-sm font-medium text-orange-700 transition hover:bg-orange-100 disabled:opacity-50"
+            >
+              {bulkLoading ? "处理中..." : "全部移除"}
+            </button>
+            {activeTab !== "reminder" && (
+              <PageGroupFilter
+                selectedIds={activeGroupFilterIds}
+                onChange={setActiveGroupFilterIds}
+              />
+            )}
+          </div>
         </div>
       )}
 
@@ -507,7 +596,7 @@ export default function PlanItemsPage() {
             </tbody>
           </table>
         </div>
-      ) : (
+      ) : activeTab === "word" ? (
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
@@ -625,6 +714,73 @@ export default function PlanItemsPage() {
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+              <tr>
+                {selectMode && (
+                  <th className="w-12 px-4 py-3">
+                    <SelectCheckbox
+                      checked={isAllSelected(visibleIds)}
+                      indeterminate={isPartiallySelected(visibleIds)}
+                      onChange={() => toggleAll(visibleIds)}
+                      ariaLabel="全选当前列表"
+                    />
+                  </th>
+                )}
+                <th className="px-4 py-3">标题</th>
+                <th className="px-4 py-3">提醒日期</th>
+                <th className="px-4 py-3">循环</th>
+                <th className="px-4 py-3 text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedReminders.map((reminder) => (
+                <tr
+                  key={reminder.id}
+                  className={`border-t border-slate-100 dark:border-slate-800 ${
+                    selectMode && selectedIds.has(reminder.id)
+                      ? "bg-blue-50/50 dark:bg-blue-950/20"
+                      : ""
+                  }`}
+                >
+                  {selectMode && (
+                    <td className="px-4 py-3">
+                      <SelectCheckbox
+                        checked={selectedIds.has(reminder.id)}
+                        onChange={() => toggleItem(reminder.id)}
+                        ariaLabel={`选择 ${reminder.title}`}
+                      />
+                    </td>
+                  )}
+                  <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">
+                    {reminder.title}
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                    {reminder.remind_date}
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                    {recurrenceLabel(reminder.recurrence)}
+                  </td>
+                  <td className="px-4 py-3">
+                    {!selectMode && (
+                      <div className="flex items-center justify-end gap-0.5">
+                        <IconButton
+                          title="移出计划"
+                          onClick={() => handleLeaveReminderPlan(reminder.id)}
+                          className="text-orange-600 hover:bg-orange-50"
+                        >
+                          <LeavePlanIcon />
+                        </IconButton>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

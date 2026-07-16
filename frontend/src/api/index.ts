@@ -1,8 +1,11 @@
 import api from "./client";
 import type {
   CalendarResponse,
+  ConfusablePair,
   Group,
   Item,
+  Reminder,
+  ReviewConfusablePair,
   ReviewItem,
   ReviewWord,
   ReviewedTodayResponse,
@@ -12,6 +15,12 @@ import type {
   User,
   Word,
 } from "../types";
+import { toApiGroupIds, type GroupFilterSelection } from "../utils/groupFilter";
+
+function groupFilterParams(groupIds?: GroupFilterSelection) {
+  const ids = groupIds ? toApiGroupIds(groupIds) : undefined;
+  return ids && ids.length > 0 ? { group_ids: ids } : {};
+}
 
 export const authApi = {
   register: (username: string, password: string) =>
@@ -53,10 +62,14 @@ export interface ItemPayload {
 }
 
 export const itemApi = {
-  list: (groupId?: number | null, inPlan?: boolean | null, q?: string) =>
+  list: (
+    groupIds?: GroupFilterSelection,
+    inPlan?: boolean | null,
+    q?: string
+  ) =>
     api.get<Item[]>("/items", {
       params: {
-        ...(groupId != null ? { group_id: groupId } : {}),
+        ...groupFilterParams(groupIds),
         ...(inPlan != null ? { in_plan: inPlan } : {}),
         ...(q ? { q } : {}),
       },
@@ -69,28 +82,33 @@ export const itemApi = {
   skip: (id: number) => api.post<Item>(`/items/${id}/skip`),
   joinPlan: (id: number) => api.post<Item>(`/items/${id}/join-plan`),
   leavePlan: (id: number) => api.post<Item>(`/items/${id}/leave-plan`),
-  joinPlanAll: (groupId?: number | null, q?: string) =>
+  joinPlanAll: (groupIds?: GroupFilterSelection, q?: string) =>
     api.post<{ count: number }>("/items/join-plan-all", null, {
       params: {
-        ...(groupId != null ? { group_id: groupId } : {}),
+        ...groupFilterParams(groupIds),
         ...(q ? { q } : {}),
       },
     }),
-  leavePlanAll: (groupId?: number | null, q?: string) =>
+  leavePlanAll: (groupIds?: GroupFilterSelection, q?: string) =>
     api.post<{ count: number }>("/items/leave-plan-all", null, {
       params: {
-        ...(groupId != null ? { group_id: groupId } : {}),
+        ...groupFilterParams(groupIds),
         ...(q ? { q } : {}),
       },
     }),
-  deleteAll: (groupId?: number | null, q?: string) =>
+  deleteAll: (groupIds?: GroupFilterSelection, q?: string) =>
     api.post<{ count: number }>("/items/delete-all", null, {
       params: {
-        ...(groupId != null ? { group_id: groupId } : {}),
+        ...groupFilterParams(groupIds),
         ...(q ? { q } : {}),
       },
     }),
 };
+
+export interface WordExample {
+  en: string;
+  zh: string;
+}
 
 export interface WordPayload {
   word: string;
@@ -98,6 +116,8 @@ export interface WordPayload {
   pos: string;
   meaning: string;
   example: string;
+  example_translation: string;
+  examples: WordExample[];
   group_id: number | null;
   learned_at?: string;
   stage_index?: number;
@@ -110,8 +130,18 @@ export interface DictionaryEntry {
   pos: string;
   meaning: string;
   example: string;
+  example_translation: string;
   definition: string;
   found: boolean;
+}
+
+export interface ConfusablePairFromReviewPreview {
+  eligible: boolean;
+  already_exists: boolean;
+  correct_word: string;
+  typed_word: string;
+  typed_meaning: string;
+  typed_phonetic: string;
 }
 
 export const dictionaryApi = {
@@ -120,10 +150,14 @@ export const dictionaryApi = {
 };
 
 export const wordApi = {
-  list: (groupId?: number | null, inPlan?: boolean | null, q?: string) =>
+  list: (
+    groupIds?: GroupFilterSelection,
+    inPlan?: boolean | null,
+    q?: string
+  ) =>
     api.get<Word[]>("/words", {
       params: {
-        ...(groupId != null ? { group_id: groupId } : {}),
+        ...groupFilterParams(groupIds),
         ...(inPlan != null ? { in_plan: inPlan } : {}),
         ...(q ? { q } : {}),
       },
@@ -134,51 +168,141 @@ export const wordApi = {
   remove: (id: number) => api.delete(`/words/${id}`),
   review: (id: number) => api.post<Word>(`/words/${id}/review`),
   skip: (id: number) => api.post<Word>(`/words/${id}/skip`),
+  resetStage: (id: number) => api.post<Word>(`/words/${id}/reset-stage`),
   joinPlan: (id: number) => api.post<Word>(`/words/${id}/join-plan`),
   leavePlan: (id: number) => api.post<Word>(`/words/${id}/leave-plan`),
-  joinPlanAll: (groupId?: number | null, q?: string) =>
+  joinPlanAll: (groupIds?: GroupFilterSelection, q?: string) =>
     api.post<{ count: number }>("/words/join-plan-all", null, {
       params: {
-        ...(groupId != null ? { group_id: groupId } : {}),
+        ...groupFilterParams(groupIds),
         ...(q ? { q } : {}),
       },
     }),
-  leavePlanAll: (groupId?: number | null, q?: string) =>
+  leavePlanAll: (groupIds?: GroupFilterSelection, q?: string) =>
     api.post<{ count: number }>("/words/leave-plan-all", null, {
       params: {
-        ...(groupId != null ? { group_id: groupId } : {}),
+        ...groupFilterParams(groupIds),
         ...(q ? { q } : {}),
       },
     }),
-  deleteAll: (groupId?: number | null, q?: string) =>
+  deleteAll: (groupIds?: GroupFilterSelection, q?: string) =>
     api.post<{ count: number }>("/words/delete-all", null, {
       params: {
-        ...(groupId != null ? { group_id: groupId } : {}),
+        ...groupFilterParams(groupIds),
         ...(q ? { q } : {}),
       },
     }),
 };
 
+export interface ReminderPayload {
+  title: string;
+  remind_date: string;
+  recurring: boolean;
+  recurrence?: string | null;
+  in_plan?: boolean;
+}
+
+export const reminderApi = {
+  list: (inPlan?: boolean | null, q?: string) =>
+    api.get<Reminder[]>("/reminders", {
+      params: {
+        ...(inPlan != null ? { in_plan: inPlan } : {}),
+        ...(q ? { q } : {}),
+      },
+    }),
+  today: () => api.get<Reminder[]>("/reminders/today"),
+  create: (payload: ReminderPayload) => api.post<Reminder>("/reminders", payload),
+  update: (id: number, payload: Partial<ReminderPayload>) =>
+    api.put<Reminder>(`/reminders/${id}`, payload),
+  remove: (id: number) => api.delete(`/reminders/${id}`),
+  done: (id: number) => api.post<Reminder>(`/reminders/${id}/done`),
+  joinPlan: (id: number) => api.post<Reminder>(`/reminders/${id}/join-plan`),
+  leavePlan: (id: number) => api.post<Reminder>(`/reminders/${id}/leave-plan`),
+  joinPlanAll: (q?: string) =>
+    api.post<{ count: number }>("/reminders/join-plan-all", null, {
+      params: q ? { q } : {},
+    }),
+  leavePlanAll: (q?: string) =>
+    api.post<{ count: number }>("/reminders/leave-plan-all", null, {
+      params: q ? { q } : {},
+    }),
+  deleteAll: (q?: string) =>
+    api.post<{ count: number }>("/reminders/delete-all", null, {
+      params: q ? { q } : {},
+    }),
+};
+
 export const reviewApi = {
-  today: (groupId?: number | null) =>
+  today: (groupIds?: GroupFilterSelection) =>
     api.get<ReviewItem[]>("/reviews/today", {
-      params: groupId != null ? { group_id: groupId } : {},
+      params: groupFilterParams(groupIds),
     }),
-  todayWords: (groupId?: number | null) =>
+  todayWords: (groupIds?: GroupFilterSelection) =>
     api.get<ReviewWord[]>("/reviews/today/words", {
-      params: groupId != null ? { group_id: groupId } : {},
+      params: groupFilterParams(groupIds),
     }),
-  todayCompleted: (groupId?: number | null) =>
+  todayConfusablePairs: () =>
+    api.get<ReviewConfusablePair[]>("/reviews/today/confusable-pairs"),
+  todayCompleted: (groupIds?: GroupFilterSelection) =>
     api.get<ReviewedTodayResponse>("/reviews/today/completed", {
-      params: groupId != null ? { group_id: groupId } : {},
+      params: groupFilterParams(groupIds),
     }),
-  calendar: (start: string, end: string, groupId?: number | null) =>
+  calendar: (start: string, end: string, groupIds?: GroupFilterSelection) =>
     api.get<CalendarResponse>("/calendar", {
       params: {
         start,
         end,
-        ...(groupId != null ? { group_id: groupId } : {}),
+        ...groupFilterParams(groupIds),
       },
+    }),
+};
+
+export const confusablePairApi = {
+  list: (inPlan?: boolean | null, q?: string) =>
+    api.get<ConfusablePair[]>("/confusable-pairs", {
+      params: {
+        ...(inPlan != null ? { in_plan: inPlan } : {}),
+        ...(q ? { q } : {}),
+      },
+    }),
+  create: (payload: { word_a: string; word_b: string }) =>
+    api.post<{ created: boolean; pair: ConfusablePair | null }>(
+      "/confusable-pairs",
+      payload
+    ),
+  createFromReview: (payload: { source_word_id: number; typed_word: string }) =>
+    api.post<{ created: boolean; pair: ConfusablePair | null }>(
+      "/confusable-pairs/from-review",
+      payload
+    ),
+  previewFromReview: (sourceWordId: number, typedWord: string) =>
+    api.get<ConfusablePairFromReviewPreview>("/confusable-pairs/from-review/preview", {
+      params: { source_word_id: sourceWordId, typed_word: typedWord },
+    }),
+  review: (id: number) => api.post<ConfusablePair>(`/confusable-pairs/${id}/review`),
+  skip: (id: number) => api.post<ConfusablePair>(`/confusable-pairs/${id}/skip`),
+  resetStage: (id: number) =>
+    api.post<ConfusablePair>(`/confusable-pairs/${id}/reset-stage`),
+  updateExample: (
+    id: number,
+    payload: {
+      side: "a" | "b";
+      example: string;
+      example_translation: string;
+    }
+  ) => api.patch<ConfusablePair>(`/confusable-pairs/${id}/example`, payload),
+  joinPlan: (id: number) =>
+    api.post<ConfusablePair>(`/confusable-pairs/${id}/join-plan`),
+  leavePlan: (id: number) =>
+    api.post<ConfusablePair>(`/confusable-pairs/${id}/leave-plan`),
+  remove: (id: number) => api.delete(`/confusable-pairs/${id}`),
+  joinPlanAll: (q?: string) =>
+    api.post<{ count: number }>("/confusable-pairs/join-plan-all", null, {
+      params: q ? { q } : {},
+    }),
+  leavePlanAll: (q?: string) =>
+    api.post<{ count: number }>("/confusable-pairs/leave-plan-all", null, {
+      params: q ? { q } : {},
     }),
 };
 
@@ -197,6 +321,14 @@ export const aiApi = {
         ? { context }
         : {}),
     }),
+  generateWordExample: (payload: {
+    word: string;
+    meaning?: string;
+    pos?: string;
+    phonetic?: string;
+    existing_examples?: WordExample[];
+  }) =>
+    api.post<WordExample>("/ai/generate-word-example", payload),
 };
 
 export const skillApi = {

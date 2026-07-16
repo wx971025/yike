@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { reviewApi, itemApi, wordApi } from "../api";
+import { reviewApi, itemApi, wordApi, reminderApi, confusablePairApi } from "../api";
 import { CardKindBadge } from "../components/CardKindBadge";
+import ConfusablePairReviewCard from "../components/ConfusablePairReviewCard";
 import ForgettingCurveModal from "../components/ForgettingCurveModal";
 import PageGroupFilter from "../components/PageGroupFilter";
 import WordReviewCard from "../components/WordReviewCard";
-import { CurveIcon, IconButton } from "../components/ItemIcons";
+import WordReviewSettingsMenu from "../components/WordReviewSettingsMenu";
+import { CurveIcon, ChevronLeftIcon, IconButton } from "../components/ItemIcons";
 import { useGroups } from "../context/GroupContext";
-import { useWordReviewUi } from "../context/WordReviewUiContext";
-import { type Item, type ReviewItem, type ReviewWord, type ReviewedTodayItem } from "../types";
+import { type Item, type Reminder, type ReviewConfusablePair, type ReviewItem, type ReviewWord, type ReviewedTodayItem } from "../types";
+import { recurrenceLabel } from "../utils/reminderSchedule";
 import { sortByCreatedAt } from "../utils/sort";
+import { todayStr, getNextReviewDate } from "../utils/reviewSchedule";
 
 type WordOrderMode = "shuffle" | "created_at";
 
@@ -24,68 +27,129 @@ function orderWords(words: ReviewWord[], mode: WordOrderMode): ReviewWord[] {
   return shuffled;
 }
 
-function DueEmptyState({ kind }: { kind: "item" | "word" }) {
+function orderConfusablePairs(
+  pairs: ReviewConfusablePair[],
+  mode: WordOrderMode
+): ReviewConfusablePair[] {
+  if (mode === "created_at") {
+    return sortByCreatedAt(pairs, "asc");
+  }
+  const shuffled = [...pairs];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+function DueEmptyState({ kind }: { kind: "item" | "word" | "reminder" | "confusable" }) {
   const isItem = kind === "item";
+  const isReminder = kind === "reminder";
+  const isConfusable = kind === "confusable";
   return (
     <div className="rounded-2xl border border-dashed border-slate-200 bg-gradient-to-b from-slate-50 via-white to-amber-50/40 px-6 py-20 text-center dark:border-slate-700 dark:from-slate-900 dark:via-slate-900 dark:to-amber-950/30">
-      <div className="text-5xl leading-none">{isItem ? "☁️" : "🌙"}</div>
+      <div className="text-5xl leading-none">
+        {isReminder ? "✅" : isConfusable ? "🔀" : isItem ? "☁️" : "🌙"}
+      </div>
       <p className="mt-4 text-base font-medium text-slate-600 dark:text-slate-300">
-        {isItem ? "今天没有待复习的普通卡片" : "今天没有待复习的单词卡片"}
+        {isReminder
+          ? "今天没有待处理的事项"
+          : isConfusable
+            ? "今天没有待复习的易混词对"
+          : isItem
+            ? "今天没有待复习的记忆卡片"
+            : "今天没有待复习的单词卡片"}
       </p>
       <p className="mt-2 text-sm leading-relaxed text-slate-400 dark:text-slate-500">
-        {isItem
-          ? "慵懒一下也没关系，脑子也需要放空的时刻～"
-          : "单词也都歇着啦，今天就让自己慢慢晃悠吧～"}
+        {isReminder
+          ? "事项都处理完啦，今天可以安心歇一歇～"
+          : isConfusable
+            ? "易混词也都对齐啦，今天就让自己慢慢晃悠吧～"
+          : isItem
+            ? "慵懒一下也没关系，脑子也需要放空的时刻～"
+            : "单词也都歇着啦，今天就让自己慢慢晃悠吧～"}
       </p>
     </div>
   );
 }
 
 export default function Dashboard() {
-  const { selectedGroupId, groups, totalStagesForGroupId } = useGroups();
-  const {
-    keyboardSoundEnabled,
-    setKeyboardSoundEnabled,
-    focusMode,
-    setFocusMode,
-  } = useWordReviewUi();
+  const { groups, totalStagesForGroupId, memoryModeForGroupId } = useGroups();
+  const [dueItemGroupFilterIds, setDueItemGroupFilterIds] = useState<Set<number>>(
+    new Set()
+  );
+  const [dueWordGroupFilterIds, setDueWordGroupFilterIds] = useState<Set<number>>(
+    new Set()
+  );
+  const [statsGroupFilterIds, setStatsGroupFilterIds] = useState<Set<number>>(
+    new Set()
+  );
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [words, setWords] = useState<ReviewWord[]>([]);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
   const [completed, setCompleted] = useState<ReviewedTodayItem[]>([]);
   const [completedStats, setCompletedStats] = useState({ total: 0, item_count: 0, word_count: 0 });
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"due" | "stats">("due");
-  const [dueSubTab, setDueSubTab] = useState<"item" | "word">("item");
+  const [dueSubTab, setDueSubTab] = useState<"item" | "word" | "confusable" | "reminder">("item");
   const [wordOrderMode, setWordOrderMode] = useState<WordOrderMode>("shuffle");
   const [wordQueue, setWordQueue] = useState<ReviewWord[]>([]);
+  const [wordHistory, setWordHistory] = useState<ReviewWord[]>([]);
+  const [confusablePairs, setConfusablePairs] = useState<ReviewConfusablePair[]>([]);
+  const [confusableQueue, setConfusableQueue] = useState<ReviewConfusablePair[]>([]);
   const [curveItem, setCurveItem] = useState<Item | null>(null);
   const [reviewToast, setReviewToast] = useState<string | null>(null);
   const wordSessionTotalRef = useRef(0);
+  const confusableSessionTotalRef = useRef(0);
 
   const groupName = (id: number | null) =>
     id == null ? "无分组" : groups.find((g) => g.id === id)?.name ?? "未知分组";
+
+  const loadDueItems = useCallback(async () => {
+    const res = await reviewApi.today(dueItemGroupFilterIds);
+    setItems(res.data);
+  }, [dueItemGroupFilterIds]);
+
+  const loadDueWords = useCallback(async () => {
+    const res = await reviewApi.todayWords(dueWordGroupFilterIds);
+    setWords(res.data);
+  }, [dueWordGroupFilterIds]);
+
+  const loadDueReminders = useCallback(async () => {
+    const res = await reminderApi.today();
+    setReminders(res.data);
+  }, []);
+
+  const loadDueConfusablePairs = useCallback(async () => {
+    const res = await reviewApi.todayConfusablePairs();
+    setConfusablePairs(res.data);
+  }, []);
+
+  const loadCompleted = useCallback(async () => {
+    const res = await reviewApi.todayCompleted(statsGroupFilterIds);
+    setCompleted(res.data.items);
+    setCompletedStats({
+      total: res.data.total,
+      item_count: res.data.item_count,
+      word_count: res.data.word_count,
+    });
+  }, [statsGroupFilterIds]);
 
   const load = useCallback(async (options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
     if (!silent) setLoading(true);
     try {
-      const [cardsRes, wordsRes, completedRes] = await Promise.all([
-        reviewApi.today(selectedGroupId),
-        reviewApi.todayWords(selectedGroupId),
-        reviewApi.todayCompleted(selectedGroupId),
+      await Promise.all([
+        loadDueItems(),
+        loadDueWords(),
+        loadDueConfusablePairs(),
+        loadDueReminders(),
+        loadCompleted(),
       ]);
-      setItems(cardsRes.data);
-      setWords(wordsRes.data);
-      setCompleted(completedRes.data.items);
-      setCompletedStats({
-        total: completedRes.data.total,
-        item_count: completedRes.data.item_count,
-        word_count: completedRes.data.word_count,
-      });
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [selectedGroupId]);
+  }, [loadDueItems, loadDueWords, loadDueConfusablePairs, loadDueReminders, loadCompleted]);
 
   useEffect(() => {
     load();
@@ -102,11 +166,24 @@ export default function Dashboard() {
   useEffect(() => {
     wordSessionTotalRef.current = 0;
     setWordQueue([]);
-  }, [selectedGroupId]);
+    setWordHistory([]);
+  }, [dueWordGroupFilterIds]);
+
+  useEffect(() => {
+    confusableSessionTotalRef.current = 0;
+    setConfusableQueue([]);
+  }, []);
 
   useEffect(() => {
     wordSessionTotalRef.current = Math.max(wordSessionTotalRef.current, words.length);
   }, [words.length]);
+
+  useEffect(() => {
+    confusableSessionTotalRef.current = Math.max(
+      confusableSessionTotalRef.current,
+      confusablePairs.length
+    );
+  }, [confusablePairs.length]);
 
   useEffect(() => {
     setWordQueue((prev) => {
@@ -121,13 +198,23 @@ export default function Dashboard() {
 
   useEffect(() => {
     setWordQueue(orderWords(words, wordOrderMode));
+    setWordHistory([]);
   }, [wordOrderMode]);
 
   useEffect(() => {
-    if (dueSubTab !== "word" || wordQueue.length === 0) {
-      setFocusMode(false);
-    }
-  }, [dueSubTab, wordQueue.length, setFocusMode]);
+    setConfusableQueue((prev) => {
+      const available = new Map(confusablePairs.map((pair) => [pair.id, pair]));
+      const kept = prev
+        .filter((pair) => available.has(pair.id))
+        .map((pair) => available.get(pair.id)!);
+      if (kept.length > 0) return kept;
+      return orderConfusablePairs(confusablePairs, wordOrderMode);
+    });
+  }, [confusablePairs]);
+
+  useEffect(() => {
+    setConfusableQueue(orderConfusablePairs(confusablePairs, wordOrderMode));
+  }, [wordOrderMode]);
 
   useEffect(() => {
     if (!reviewToast) return;
@@ -137,6 +224,21 @@ export default function Dashboard() {
 
   const itemCount = items.length;
   const wordCount = wordQueue.length;
+  const confusableCount = confusableQueue.length;
+  const reminderCount = reminders.length;
+  const isWordReviewActive =
+    activeTab === "due" && dueSubTab === "word" && wordCount > 0;
+  const isConfusableReviewActive =
+    activeTab === "due" && dueSubTab === "confusable" && confusableCount > 0;
+  const isSpellReviewActive = isWordReviewActive || isConfusableReviewActive;
+
+  const handleReminderDone = async (id: number) => {
+    const reminder = reminders.find((item) => item.id === id);
+    await reminderApi.done(id);
+    if (reminder) setReviewToast(`${reminder.title} 已完成`);
+    setReminders((prev) => prev.filter((item) => item.id !== id));
+    window.dispatchEvent(new CustomEvent("app-data-changed"));
+  };
 
   const handleCardReview = async (id: number) => {
     const item = items.find((it) => it.id === id);
@@ -152,7 +254,29 @@ export default function Dashboard() {
     window.dispatchEvent(new CustomEvent("app-data-changed"));
   };
 
+  const pushWordHistory = (word: ReviewWord) => {
+    setWordHistory((prev) => [...prev, word]);
+  };
+
+  const handleWordPrevious = () => {
+    setWordHistory((prev) => {
+      if (prev.length === 0) return prev;
+      const previous = prev[prev.length - 1];
+      setWordQueue((queue) => {
+        if (queue.length === 0) return [previous];
+        const [current, ...rest] = queue;
+        const restWithoutPrev = rest.filter((w) => w.id !== previous.id);
+        return current
+          ? [previous, current, ...restWithoutPrev]
+          : [previous, ...restWithoutPrev];
+      });
+      return prev.slice(0, -1);
+    });
+  };
+
   const handleWordReview = async (id: number) => {
+    const current = wordQueue[0];
+    if (current?.id === id) pushWordHistory(current);
     await wordApi.review(id);
     setWords((prev) => prev.filter((w) => w.id !== id));
     setWordQueue((prev) => prev.filter((w) => w.id !== id));
@@ -160,6 +284,8 @@ export default function Dashboard() {
   };
 
   const handleWordSkip = async (id: number) => {
+    const current = wordQueue[0];
+    if (current?.id === id) pushWordHistory(current);
     await wordApi.skip(id);
     setWords((prev) => prev.filter((w) => w.id !== id));
     setWordQueue((prev) => prev.filter((w) => w.id !== id));
@@ -167,6 +293,8 @@ export default function Dashboard() {
   };
 
   const handleWordDefer = (id: number) => {
+    const current = wordQueue[0];
+    if (current?.id === id) pushWordHistory(current);
     setWordQueue((prev) => {
       const index = prev.findIndex((w) => w.id === id);
       if (index < 0) return prev;
@@ -176,6 +304,97 @@ export default function Dashboard() {
       return next;
     });
   };
+
+  const handleWordUpdated = useCallback((updated: ReviewWord) => {
+    const patch = (word: ReviewWord): ReviewWord =>
+      word.id === updated.id ? updated : word;
+    setWords((prev) => prev.map(patch));
+    setWordQueue((prev) => prev.map(patch));
+  }, []);
+
+  const handleWordPeekReset = useCallback(async (id: number) => {
+    try {
+      const res = await wordApi.resetStage(id);
+      const updated = res.data;
+      const today = todayStr();
+      const dueDate =
+        getNextReviewDate(updated, memoryModeForGroupId(updated.group_id)) ?? today;
+      const patchWord = (word: ReviewWord): ReviewWord =>
+        word.id === id
+          ? {
+              ...word,
+              ...updated,
+              stage_index: 0,
+              learned_at: updated.learned_at ?? today,
+              status: updated.status,
+              last_reviewed_at: null,
+              due_date: dueDate,
+              overdue_days: 0,
+            }
+          : word;
+      setWords((prev) => prev.map(patchWord));
+      setWordQueue((prev) => prev.map(patchWord));
+      window.dispatchEvent(new CustomEvent("app-data-changed"));
+    } catch {
+      // 重置失败不阻断当前复习流程
+    }
+  }, [memoryModeForGroupId]);
+
+  const handleConfusableReview = async (id: number) => {
+    await confusablePairApi.review(id);
+    setConfusablePairs((prev) => prev.filter((pair) => pair.id !== id));
+    setConfusableQueue((prev) => prev.filter((pair) => pair.id !== id));
+    window.dispatchEvent(new CustomEvent("app-data-changed"));
+  };
+
+  const handleConfusableSkip = async (id: number) => {
+    await confusablePairApi.skip(id);
+    setConfusablePairs((prev) => prev.filter((pair) => pair.id !== id));
+    setConfusableQueue((prev) => prev.filter((pair) => pair.id !== id));
+    window.dispatchEvent(new CustomEvent("app-data-changed"));
+  };
+
+  const handleConfusableDefer = (id: number) => {
+    setConfusableQueue((prev) => {
+      const index = prev.findIndex((pair) => pair.id === id);
+      if (index < 0) return prev;
+      const next = [...prev];
+      const [pair] = next.splice(index, 1);
+      next.push(pair);
+      return next;
+    });
+  };
+
+  const handleConfusablePairUpdated = useCallback((updated: ReviewConfusablePair) => {
+    const patch = (pair: ReviewConfusablePair): ReviewConfusablePair =>
+      pair.id === updated.id ? updated : pair;
+    setConfusablePairs((prev) => prev.map(patch));
+    setConfusableQueue((prev) => prev.map(patch));
+  }, []);
+
+  const handleConfusablePeekReset = useCallback(async (id: number) => {
+    try {
+      const res = await confusablePairApi.resetStage(id);
+      const updated = res.data;
+      const today = todayStr();
+      const patchPair = (pair: ReviewConfusablePair): ReviewConfusablePair =>
+        pair.id === id
+          ? {
+              ...pair,
+              stage_index: updated.stage_index,
+              learned_at: updated.learned_at,
+              status: updated.status,
+              due_date: today,
+              overdue_days: 0,
+            }
+          : pair;
+      setConfusablePairs((prev) => prev.map(patchPair));
+      setConfusableQueue((prev) => prev.map(patchPair));
+      window.dispatchEvent(new CustomEvent("app-data-changed"));
+    } catch {
+      // 重置失败不阻断当前复习流程
+    }
+  }, []);
 
   const completedItems = completed.filter((entry) => entry.kind === "item");
   const completedWords = completed.filter((entry) => entry.kind === "word");
@@ -204,8 +423,8 @@ export default function Dashboard() {
   return (
     <div
       className={
-        focusMode && activeTab === "due" && dueSubTab === "word" && wordCount > 0
-          ? "flex min-h-0 flex-1 flex-col"
+        isSpellReviewActive
+          ? "flex min-h-[calc(100vh-10rem)] flex-col"
           : undefined
       }
     >
@@ -218,19 +437,15 @@ export default function Dashboard() {
         </div>
       )}
 
-      {!focusMode && (
-        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">今日复习</h1>
-            <p className="text-sm text-slate-400 dark:text-slate-500">
-              根据分组记忆方式，查看今天待复习和已复习的内容
-            </p>
-          </div>
-          <PageGroupFilter />
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">今日复习</h1>
+          <p className="text-sm text-slate-400 dark:text-slate-500">
+            根据分组记忆方式，查看今天待复习和已复习的内容
+          </p>
         </div>
-      )}
+      </div>
 
-      {!focusMode && (
       <div className="mb-5 flex gap-2 border-b border-slate-200 dark:border-slate-700">
         <button
           type="button"
@@ -242,13 +457,13 @@ export default function Dashboard() {
           }`}
         >
           待复习
-          {(itemCount > 0 || wordCount > 0) && (
+          {(itemCount > 0 || wordCount > 0 || confusableCount > 0) && (
             <span
               className={`rounded-full px-2 py-0.5 text-xs ${
                 activeTab === "due" ? "bg-blue-100 text-blue-700" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
               }`}
             >
-              {itemCount + wordCount}
+              {itemCount + wordCount + confusableCount}
             </span>
           )}
         </button>
@@ -271,11 +486,9 @@ export default function Dashboard() {
           </span>
         </button>
       </div>
-      )}
 
       {activeTab === "due" ? (
-        <>
-          {!focusMode && (
+        <div className={isSpellReviewActive ? "flex min-h-0 flex-1 flex-col" : undefined}>
           <div className="mb-4 flex items-center gap-2">
             <button
               type="button"
@@ -286,7 +499,7 @@ export default function Dashboard() {
                   : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
               }`}
             >
-              普通卡片
+              记忆卡片
               {itemCount > 0 && (
                 <span className="h-2 w-2 rounded-full bg-red-500" title={`${itemCount} 张待复习`} />
               )}
@@ -319,61 +532,77 @@ export default function Dashboard() {
                 {wordCount}
               </span>
             </button>
-            {dueSubTab === "word" && (
-              <div className="ml-auto flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
+            <button
+              type="button"
+              onClick={() => setDueSubTab("confusable")}
+              className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                dueSubTab === "confusable"
+                  ? "bg-rose-100 text-rose-700"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
+              }`}
+            >
+              易混词
+              {confusableCount > 0 && (
+                <span className="h-2 w-2 rounded-full bg-red-500" title={`${confusableCount} 对待复习`} />
+              )}
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs ${
+                  dueSubTab === "confusable"
+                    ? "bg-rose-200 text-rose-800"
+                    : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400"
+                }`}
+              >
+                {confusableCount}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDueSubTab("reminder")}
+              className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                dueSubTab === "reminder"
+                  ? "bg-amber-100 text-amber-800"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
+              }`}
+            >
+              事项卡片
+              {reminderCount > 0 && (
+                <span className="h-2 w-2 rounded-full bg-red-500" title={`${reminderCount} 个待处理`} />
+              )}
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs ${
+                  dueSubTab === "reminder"
+                    ? "bg-amber-200 text-amber-900"
+                    : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400"
+                }`}
+              >
+                {reminderCount}
+              </span>
+            </button>
+            <div className="ml-auto flex items-center gap-2">
+              {dueSubTab === "item" ? (
+                <PageGroupFilter
+                  selectedIds={dueItemGroupFilterIds}
+                  onChange={setDueItemGroupFilterIds}
+                />
+              ) : dueSubTab === "word" || dueSubTab === "confusable" ? (
+                <WordReviewSettingsMenu
+                  showWordOrder={dueSubTab === "confusable"}
+                  wordOrderMode={wordOrderMode}
+                  onToggleWordOrder={() =>
                     setWordOrderMode((mode) =>
                       mode === "shuffle" ? "created_at" : "shuffle"
                     )
                   }
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition ${
-                    wordOrderMode === "shuffle"
-                      ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
-                      : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                  }`}
-                  title={
-                    wordOrderMode === "shuffle"
-                      ? "当前乱序，点击按添加时间排序"
-                      : "当前按添加时间，点击切换乱序"
-                  }
-                >
-                  <span aria-hidden>{wordOrderMode === "shuffle" ? "🔀" : "🕒"}</span>
-                  {wordOrderMode === "shuffle" ? "乱序" : "顺序"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setKeyboardSoundEnabled(!keyboardSoundEnabled)}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition ${
-                    keyboardSoundEnabled
-                      ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
-                      : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                  }`}
-                  title={keyboardSoundEnabled ? "点击关闭键盘音" : "点击开启键盘音"}
-                >
-                  <span aria-hidden>{keyboardSoundEnabled ? "🔊" : "🔇"}</span>
-                  {keyboardSoundEnabled ? "键盘音" : "静音"}
-                </button>
-                {wordCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setFocusMode(!focusMode)}
-                    className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition ${
-                      focusMode
-                        ? "bg-violet-600 text-white"
-                        : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                    }`}
-                    title={focusMode ? "退出放大模式" : "放大复习区域，隐藏无关元素"}
-                  >
-                    <span aria-hidden>{focusMode ? "↙" : "⛶"}</span>
-                    {focusMode ? "退出放大" : "放大"}
-                  </button>
-                )}
-              </div>
-            )}
+                />
+              ) : null}
+              {dueSubTab === "word" ? (
+                <PageGroupFilter
+                  selectedIds={dueWordGroupFilterIds}
+                  onChange={setDueWordGroupFilterIds}
+                />
+              ) : null}
+            </div>
           </div>
-          )}
 
           {loading ? (
             <p className="text-slate-400 dark:text-slate-500">加载中...</p>
@@ -385,8 +614,10 @@ export default function Dashboard() {
                 {items.map((item) => (
                   <div
                     key={`card-${item.id}`}
-                    className={`relative rounded-2xl border bg-white dark:bg-slate-900 p-4 pr-12 shadow-sm ${
-                      item.overdue_days > 0 ? "border-red-300" : "border-slate-200 dark:border-slate-700"
+                    className={`relative rounded-2xl border p-4 pr-12 ${
+                      item.overdue_days > 0
+                        ? "border-red-300 ring-1 ring-red-200/80 dark:ring-red-900/50"
+                        : "border-slate-200 dark:border-slate-700"
                     }`}
                   >
                     <IconButton
@@ -427,7 +658,7 @@ export default function Dashboard() {
                       </button>
                       <button
                         onClick={() => handleCardSkip(item.id)}
-                        className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 transition hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                        className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 transition hover:bg-slate-50 dark:hover:bg-slate-800/60"
                       >
                         跳过
                       </button>
@@ -436,16 +667,36 @@ export default function Dashboard() {
                 ))}
               </div>
             )
-          ) : wordCount === 0 ? (
+          ) : dueSubTab === "word" ? (
+            wordCount === 0 ? (
             <DueEmptyState kind="word" />
           ) : (
-            <div className={focusMode ? "flex min-h-0 flex-1 flex-col" : undefined}>
+            <div className={isWordReviewActive ? "flex min-h-0 flex-1 flex-col" : undefined}>
+            <div
+              className={`flex items-center gap-2 ${
+                isWordReviewActive ? "min-h-0 flex-1" : ""
+              }`}
+            >
+              <button
+                type="button"
+                onClick={handleWordPrevious}
+                disabled={wordHistory.length === 0}
+                title="上一个单词"
+                aria-label="上一个单词"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+              >
+                <ChevronLeftIcon />
+              </button>
+              <div
+                className={
+                  isWordReviewActive ? "flex min-h-0 min-w-0 flex-1 flex-col" : "min-w-0 flex-1"
+                }
+              >
             <WordReviewCard
               word={wordQueue[0]}
               groupLabel={groupName(wordQueue[0].group_id)}
               currentIndex={wordSessionTotalRef.current - wordQueue.length}
               totalCount={Math.max(wordSessionTotalRef.current, wordQueue.length)}
-              expanded={focusMode}
               wordOrderMode={wordOrderMode}
               onToggleWordOrder={() =>
                 setWordOrderMode((mode) =>
@@ -455,24 +706,90 @@ export default function Dashboard() {
               onReviewed={handleWordReview}
               onSkip={handleWordSkip}
               onDefer={handleWordDefer}
+              onPeekAnswer={handleWordPeekReset}
+              onWordUpdated={handleWordUpdated}
             />
+              </div>
+            </div>
+            </div>
+          )
+        ) : dueSubTab === "confusable" ? (
+          confusableCount === 0 ? (
+            <DueEmptyState kind="confusable" />
+          ) : (
+            <div className={isConfusableReviewActive ? "flex min-h-0 flex-1 flex-col" : undefined}>
+              <ConfusablePairReviewCard
+                pair={confusableQueue[0]}
+                currentIndex={
+                  confusableSessionTotalRef.current - confusableQueue.length
+                }
+                totalCount={Math.max(
+                  confusableSessionTotalRef.current,
+                  confusableQueue.length
+                )}
+                onReviewed={handleConfusableReview}
+                onSkip={handleConfusableSkip}
+                onDefer={handleConfusableDefer}
+                onPeekAnswer={handleConfusablePeekReset}
+                onPairUpdated={handleConfusablePairUpdated}
+              />
+            </div>
+          )
+        ) : reminderCount === 0 ? (
+            <DueEmptyState kind="reminder" />
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {reminders.map((reminder) => (
+                <div
+                  key={`reminder-${reminder.id}`}
+                  className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4 dark:border-amber-900/50 dark:bg-amber-950/20"
+                >
+                  <div className="mb-1">
+                    <CardKindBadge kind="reminder" />
+                  </div>
+                  <h3 className="mb-2 mt-2 font-semibold text-slate-800 dark:text-slate-100">
+                    {reminder.title}
+                  </h3>
+                  <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-800">
+                      提醒于 {reminder.remind_date}
+                    </span>
+                    <span className="text-slate-500 dark:text-slate-400">
+                      {recurrenceLabel(reminder.recurrence)}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleReminderDone(reminder.id)}
+                    className="w-full rounded-lg bg-green-600 py-2 text-sm font-medium text-white transition hover:bg-green-700"
+                  >
+                    完成
+                  </button>
+                </div>
+              ))}
             </div>
           )}
-        </>
+        </div>
       ) : loading ? (
         <p className="text-slate-400 dark:text-slate-500">加载中...</p>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <>
+          <div className="mb-4 flex justify-end">
+            <PageGroupFilter
+              selectedIds={statsGroupFilterIds}
+              onChange={setStatsGroupFilterIds}
+            />
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
           <div className="flex max-h-[calc(100vh-14rem)] min-h-[20rem] flex-col overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
             <div className="flex shrink-0 items-center justify-between border-b border-slate-100 dark:border-slate-800 px-4 py-3">
-              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">普通卡片</h3>
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">记忆卡片</h3>
               <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
                 {completedStats.item_count}
               </span>
             </div>
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
               {completedItems.length === 0 ? (
-                <p className="py-12 text-center text-sm text-slate-400 dark:text-slate-500">今天还没有复习普通卡片</p>
+                <p className="py-12 text-center text-sm text-slate-400 dark:text-slate-500">今天还没有复习记忆卡片</p>
               ) : (
                 completedItems.map(renderCompletedEntry)
               )}
@@ -495,6 +812,7 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+        </>
       )}
 
       {curveItem && (

@@ -45,6 +45,27 @@ export const DeleteIcon = () => (
   </svg>
 );
 
+export const StarIcon = () => (
+  <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor">
+    <path d="M10 1.6l2.2 4.5 4.9.7-3.55 3.46.84 4.88L10 12.9l-4.39 2.31.84-4.88L2.9 6.8l4.9-.7L10 1.6z" />
+  </svg>
+);
+
+export const SparkleIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M9.5 2.5 10.5 6.5 14.5 7.5 10.5 8.5 9.5 12.5 8.5 8.5 4.5 7.5 8.5 6.5 9.5 2.5Z" />
+    <path d="M17.5 14.5 18.1 16.5 20.1 17.1 18.1 17.7 17.5 19.7 16.9 17.7 14.9 17.1 16.9 16.5 17.5 14.5Z" />
+  </svg>
+);
+
 export const PlusIcon = () => (
   <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M12 5v14" strokeLinecap="round" />
@@ -121,10 +142,7 @@ export const GearIcon = () => (
 
 export const ClearContextIcon = () => (
   <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M4.5 6.5h9" />
-    <path d="M5.5 10h7" />
-    <path d="M6.5 13.5h5" />
-    <path d="M12.5 4.5l3 3" />
-    <path d="M13.5 4.5l-2.2 5.2" />
+    <path d="M4 10a6 6 0 1 0 1.2-3.6" />
+    <path d="M4 6v4h4" />
   </svg>
 );

@@ -1,17 +1,19 @@
 from collections import defaultdict
 from datetime import date
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import Item, User, Word
+from ..models import ConfusablePair, Item, Reminder, User, Word
 from ..schemas import (
     CalendarDay,
     CalendarEventItem,
     CalendarOut,
+    ConfusablePairOut,
     ItemOut,
+    ReviewConfusablePairOut,
     ReviewItemOut,
     ReviewWordOut,
     ReviewedTodayItem,
@@ -20,7 +22,12 @@ from ..schemas import (
 )
 from ..dates import app_today
 from ..services.group_context import group_memory_mode_map
+from ..services.group_filter import apply_group_ids_filter
+from ..services.memory_schedule import normalize_memory_mode
+from ..services.reminder_schedule import is_reminder_due, upcoming_reminder_dates
 from ..services.review import get_due_date, is_due, resolve_memory_mode, upcoming_due_dates
+
+CONFUSABLE_MEMORY_MODE = normalize_memory_mode(None)
 
 router = APIRouter(prefix="/api", tags=["reviews"])
 
@@ -28,6 +35,7 @@ router = APIRouter(prefix="/api", tags=["reviews"])
 @router.get("/reviews/today", response_model=list[ReviewItemOut])
 def reviews_today(
     group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -36,8 +44,7 @@ def reviews_today(
     query = db.query(Item).filter(
         Item.user_id == user.id, Item.status == "active", Item.in_plan.is_(True)
     )
-    if group_id is not None:
-        query = query.filter(Item.group_id == group_id)
+    query = apply_group_ids_filter(query, Item.group_id, group_id, group_ids)
 
     result: list[ReviewItemOut] = []
     for item in query.all():
@@ -55,6 +62,7 @@ def reviews_today(
 @router.get("/reviews/today/words", response_model=list[ReviewWordOut])
 def reviews_today_words(
     group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -63,8 +71,7 @@ def reviews_today_words(
     query = db.query(Word).filter(
         Word.user_id == user.id, Word.status == "active", Word.in_plan.is_(True)
     )
-    if group_id is not None:
-        query = query.filter(Word.group_id == group_id)
+    query = apply_group_ids_filter(query, Word.group_id, group_id, group_ids)
 
     result: list[ReviewWordOut] = []
     for word in query.all():
@@ -79,6 +86,32 @@ def reviews_today_words(
     return result
 
 
+@router.get("/reviews/today/confusable-pairs", response_model=list[ReviewConfusablePairOut])
+def reviews_today_confusable_pairs(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    today = app_today()
+    query = db.query(ConfusablePair).filter(
+        ConfusablePair.user_id == user.id,
+        ConfusablePair.status == "active",
+        ConfusablePair.in_plan.is_(True),
+    )
+
+    result: list[ReviewConfusablePairOut] = []
+    for pair in query.all():
+        if is_due(pair, today, CONFUSABLE_MEMORY_MODE):
+            due = get_due_date(pair.learned_at, pair.stage_index, CONFUSABLE_MEMORY_MODE)
+            data = ConfusablePairOut.model_validate(pair).model_dump()
+            result.append(
+                ReviewConfusablePairOut(
+                    **data, due_date=due, overdue_days=(today - due).days
+                )
+            )
+    result.sort(key=lambda r: r.overdue_days, reverse=True)
+    return result
+
+
 def _completed_stage(stage_index: int, status: str) -> int:
     if status == "mastered":
         return stage_index + 1
@@ -88,6 +121,7 @@ def _completed_stage(stage_index: int, status: str) -> int:
 @router.get("/reviews/today/completed", response_model=ReviewedTodayOut)
 def reviews_today_completed(
     group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -98,8 +132,7 @@ def reviews_today_completed(
         Item.user_id == user.id,
         Item.last_reviewed_at == today,
     )
-    if group_id is not None:
-        item_query = item_query.filter(Item.group_id == group_id)
+    item_query = apply_group_ids_filter(item_query, Item.group_id, group_id, group_ids)
     for item in item_query.all():
         items.append(
             ReviewedTodayItem(
@@ -115,8 +148,7 @@ def reviews_today_completed(
         Word.user_id == user.id,
         Word.last_reviewed_at == today,
     )
-    if group_id is not None:
-        word_query = word_query.filter(Word.group_id == group_id)
+    word_query = apply_group_ids_filter(word_query, Word.group_id, group_id, group_ids)
     for word in word_query.all():
         items.append(
             ReviewedTodayItem(
@@ -144,6 +176,7 @@ def calendar(
     start: date,
     end: date,
     group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -151,8 +184,7 @@ def calendar(
     query = db.query(Item).filter(
         Item.user_id == user.id, Item.status == "active", Item.in_plan.is_(True)
     )
-    if group_id is not None:
-        query = query.filter(Item.group_id == group_id)
+    query = apply_group_ids_filter(query, Item.group_id, group_id, group_ids)
 
     by_date: dict[date, list[CalendarEventItem]] = defaultdict(list)
     for item in query.all():
@@ -172,8 +204,7 @@ def calendar(
     word_query = db.query(Word).filter(
         Word.user_id == user.id, Word.status == "active", Word.in_plan.is_(True)
     )
-    if group_id is not None:
-        word_query = word_query.filter(Word.group_id == group_id)
+    word_query = apply_group_ids_filter(word_query, Word.group_id, group_id, group_ids)
     for word in word_query.all():
         mode = resolve_memory_mode(word.group_id, mode_map)
         for due, stage_index in upcoming_due_dates(word, start, end, mode):
@@ -185,6 +216,49 @@ def calendar(
                     stage=stage_index + 1,
                     stage_index=stage_index,
                     kind="word",
+                )
+            )
+
+    reminder_query = db.query(Reminder).filter(
+        Reminder.user_id == user.id, Reminder.in_plan.is_(True)
+    )
+    for reminder in reminder_query.all():
+        for due in upcoming_reminder_dates(
+            remind_date=reminder.remind_date,
+            recurrence=reminder.recurrence,
+            in_plan=reminder.in_plan,
+            last_done_at=reminder.last_done_at,
+            start=start,
+            end=end,
+        ):
+            by_date[due].append(
+                CalendarEventItem(
+                    id=reminder.id,
+                    title=reminder.title,
+                    group_id=None,
+                    stage=0,
+                    stage_index=0,
+                    kind="reminder",
+                )
+            )
+
+    pair_query = db.query(ConfusablePair).filter(
+        ConfusablePair.user_id == user.id,
+        ConfusablePair.status == "active",
+        ConfusablePair.in_plan.is_(True),
+    )
+    for pair in pair_query.all():
+        for due, stage_index in upcoming_due_dates(
+            pair, start, end, CONFUSABLE_MEMORY_MODE
+        ):
+            by_date[due].append(
+                CalendarEventItem(
+                    id=pair.id,
+                    title=f"{pair.word_a} ↔ {pair.word_b}",
+                    group_id=None,
+                    stage=stage_index + 1,
+                    stage_index=stage_index,
+                    kind="confusable_pair",
                 )
             )
 

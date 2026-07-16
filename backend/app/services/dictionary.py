@@ -40,6 +40,7 @@ class DictionaryEntry:
     pos: str
     meaning: str
     example: str
+    example_translation: str
     definition: str
     found: bool
 
@@ -50,6 +51,7 @@ class DictionaryEntry:
             "pos": self.pos,
             "meaning": self.meaning,
             "example": self.example,
+            "example_translation": self.example_translation,
             "definition": self.definition,
             "found": self.found,
         }
@@ -99,36 +101,133 @@ def _format_meaning(translation: str | None, definition: str | None) -> str:
     return ""
 
 
-def _extract_example(detail: str | None, definition: str | None) -> str:
+def _first_translation_line(translation: str | None) -> str:
+    if not translation or not translation.strip():
+        return ""
+    for line in translation.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        line = re.sub(r"^\[[^\]]+\]\s*", "", line)
+        line = re.sub(r"^[a-z]+\.\s*", "", line, flags=re.IGNORECASE)
+        if line:
+            return line
+    return ""
+
+
+def _pick_text(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def _split_gloss_lines(text: str | None) -> list[tuple[str, str]]:
+    """把 ECDICT 的 definition/translation 按行拆成 (词性标记, 正文)。"""
+    if not text or not text.strip():
+        return []
+    lines: list[tuple[str, str]] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        matched = re.match(r"^(\[[^\]]+\]|[a-z]+\.)\s*(.+)$", line, re.IGNORECASE)
+        if matched:
+            lines.append((matched.group(1).strip(), matched.group(2).strip()))
+        else:
+            lines.append(("", line))
+    return lines
+
+
+def _pair_definition_translation(
+    definition: str | None,
+    translation: str | None,
+) -> tuple[str, str] | None:
+    """从 ECDICT 双解释义中取第一组英中对照，作为例句与翻译。"""
+    def_lines = _split_gloss_lines(definition)
+    trans_lines = _split_gloss_lines(translation)
+    if not def_lines or not trans_lines:
+        return None
+
+    for (def_pos, def_text), (trans_pos, trans_text) in zip(def_lines, trans_lines):
+        if def_text and trans_text:
+            return def_text, trans_text
+
+    def_text = def_lines[0][1]
+    trans_text = trans_lines[0][1]
+    if def_text and trans_text:
+        return def_text, trans_text
+    return None
+
+
+def _extract_example_pair(
+    detail: str | None,
+    translation: str | None,
+    definition: str | None,
+    word: str,
+) -> tuple[str, str]:
     if detail and detail.strip():
         try:
             data = json.loads(detail)
         except json.JSONDecodeError:
             data = None
         if isinstance(data, dict):
-            for key in ("example", "examples", "sentence"):
+            for key in ("sentence", "example"):
                 value = data.get(key)
-                if isinstance(value, str) and value.strip():
-                    return value.strip()
+                if isinstance(value, dict):
+                    en = _pick_text(value.get("en") or value.get("english"))
+                    cn = _pick_text(
+                        value.get("cn")
+                        or value.get("zh")
+                        or value.get("translation")
+                        or value.get("chinese")
+                    )
+                    if en:
+                        return en, cn or _first_translation_line(translation)
+            for key in ("examples", "sentences"):
+                value = data.get(key)
                 if isinstance(value, list) and value:
                     first = value[0]
-                    if isinstance(first, str):
-                        return first.strip()
-    if definition and definition.strip():
-        for line in definition.splitlines():
-            line = line.strip()
-            if len(line) > 20 and " " in line:
-                return line
-    return ""
+                    if isinstance(first, dict):
+                        en = _pick_text(first.get("en") or first.get("english"))
+                        cn = _pick_text(
+                            first.get("cn")
+                            or first.get("zh")
+                            or first.get("translation")
+                            or first.get("chinese")
+                        )
+                        if en:
+                            return en, cn or _first_translation_line(translation)
+                    if isinstance(first, str) and first.strip():
+                        return first.strip(), _first_translation_line(translation)
+            for key in ("example", "sentence"):
+                value = data.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip(), _first_translation_line(translation)
+
+    paired = _pair_definition_translation(definition, translation)
+    if paired:
+        return paired
+
+    trans_lines = _split_gloss_lines(translation)
+    if trans_lines and trans_lines[0][1]:
+        return "", trans_lines[0][1]
+    return "", ""
 
 
 def _row_to_entry(row: sqlite3.Row) -> DictionaryEntry:
+    example, example_translation = _extract_example_pair(
+        row["detail"],
+        row["translation"],
+        row["definition"],
+        row["word"],
+    )
     return DictionaryEntry(
         word=row["word"],
         phonetic=_format_phonetic(row["phonetic"]),
         pos=_format_pos(row["pos"]),
         meaning=_format_meaning(row["translation"], row["definition"]),
-        example=_extract_example(row["detail"], row["definition"]),
+        example=example,
+        example_translation=example_translation,
         definition=(row["definition"] or "").strip(),
         found=True,
     )
@@ -180,12 +279,13 @@ def schedule_dictionary_setup() -> None:
 def lookup_word(word: str) -> DictionaryEntry:
     text = word.strip()
     if not text:
-        return DictionaryEntry("", "", "", "", "", "", False)
+        return DictionaryEntry("", "", "", "", "", "", "", False)
 
     if not dictionary_ready():
         schedule_dictionary_setup()
         return DictionaryEntry(
             text,
+            "",
             "",
             "",
             "",
@@ -198,10 +298,10 @@ def lookup_word(word: str) -> DictionaryEntry:
         row = _query_row(text)
     except Exception:
         logger.exception("词典查询失败")
-        return DictionaryEntry(text, "", "", "", "", "", False)
+        return DictionaryEntry(text, "", "", "", "", "", "", False)
 
     if not row:
-        return DictionaryEntry(text, "", "", "", "", "", False)
+        return DictionaryEntry(text, "", "", "", "", "", "", False)
     return _row_to_entry(row)
 
 

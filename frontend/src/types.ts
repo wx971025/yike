@@ -43,6 +43,22 @@ export interface ReviewItem extends Item {
   overdue_days: number;
 }
 
+export interface Reminder {
+  id: number;
+  title: string;
+  remind_date: string;
+  recurrence: string | null;
+  in_plan: boolean;
+  last_done_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WordExample {
+  en: string;
+  zh: string;
+}
+
 export interface Word {
   id: number;
   group_id: number | null;
@@ -51,6 +67,8 @@ export interface Word {
   pos: string;
   meaning: string;
   example: string;
+  example_translation: string;
+  examples: WordExample[];
   learned_at: string;
   stage_index: number;
   stage_status: string;
@@ -63,6 +81,38 @@ export interface Word {
 }
 
 export interface ReviewWord extends Word {
+  due_date: string;
+  overdue_days: number;
+}
+
+export interface ConfusablePair {
+  id: number;
+  group_id: number | null;
+  source_word_id: number | null;
+  word_a: string;
+  phonetic_a: string;
+  pos_a: string;
+  meaning_a: string;
+  example_a: string;
+  example_a_translation: string;
+  word_b: string;
+  phonetic_b: string;
+  pos_b: string;
+  meaning_b: string;
+  example_b: string;
+  example_b_translation: string;
+  learned_at: string;
+  stage_index: number;
+  stage_status: string;
+  status: string;
+  in_plan: boolean;
+  last_reviewed_at: string | null;
+  skipped_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReviewConfusablePair extends ConfusablePair {
   due_date: string;
   overdue_days: number;
 }
@@ -81,7 +131,7 @@ export interface CalendarEventItem {
   group_id: number | null;
   stage: number;
   stage_index: number;
-  kind: "item" | "word";
+  kind: "item" | "word" | "reminder" | "confusable_pair";
 }
 
 export interface CalendarDay {
@@ -108,7 +158,7 @@ export interface CalendarResponse {
   events: CalendarDay[];
 }
 
-export const INTERVALS = [1, 3, 7, 15, 30, 60, 180];
+export const INTERVALS = [3, 7, 15, 30, 60, 180];
 export const REVIEW_DAYS = [0, ...INTERVALS];
 export const TOTAL_STAGES = REVIEW_DAYS.length;
 
@@ -127,7 +177,7 @@ export const MEMORY_MODES: {
   {
     value: "ebbinghaus",
     label: "艾宾浩斯 · 间隔复习",
-    description: "当天、第 1/3/7/15/30/60/180 天复习，适合长期记忆",
+    description: "当天、3/7/15/30/60/180 天后复习，适合长期记忆",
   },
   {
     value: "daily_7",
@@ -170,7 +220,7 @@ export function stageDayLabel(mode: MemoryMode | string | null | undefined, day:
   if (normalized.startsWith("daily_")) {
     return day === 0 ? "第 1 天" : `第 ${day + 1} 天`;
   }
-  return day === 0 ? "立即复习" : `${day}天后`;
+  return day === 0 ? "当天" : `${day}天后`;
 }
 
 export function getReviewStageOptions(mode?: string | null) {

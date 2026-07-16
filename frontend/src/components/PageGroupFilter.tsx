@@ -1,10 +1,18 @@
-import GroupSelector from "./GroupSelector";
+import GroupMultiFilter from "./GroupMultiFilter";
+import type { GroupFilterSelection } from "../utils/groupFilter";
 
-export default function PageGroupFilter() {
+interface PageGroupFilterProps {
+  selectedIds: GroupFilterSelection;
+  onChange: (ids: GroupFilterSelection) => void;
+}
+
+export default function PageGroupFilter({
+  selectedIds,
+  onChange,
+}: PageGroupFilterProps) {
   return (
-    <div className="flex shrink-0 items-center gap-2">
-      <span className="text-sm text-slate-500 dark:text-slate-400">分组筛选</span>
-      <GroupSelector />
+    <div className="flex shrink-0 items-center">
+      <GroupMultiFilter selectedIds={selectedIds} onChange={onChange} />
     </div>
   );
 }

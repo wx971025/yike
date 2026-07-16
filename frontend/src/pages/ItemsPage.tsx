@@ -11,13 +11,13 @@ import {
   IconButton,
   JoinPlanIcon,
   LeavePlanIcon,
-  PlusIcon,
 } from "../components/ItemIcons";
 import SearchBox from "../components/SearchBox";
 import SortableHeader from "../components/SortableHeader";
 import { useGroups } from "../context/GroupContext";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { getReviewStageOptions, type Item } from "../types";
+import { UNGROUPED_GROUP_ID, isGroupFilterActive } from "../utils/groupFilter";
 import { learnedAtForStage } from "../utils/reviewSchedule";
 import {
   sortByCreatedAt,
@@ -45,8 +45,8 @@ const emptyForm: ItemPayload = {
 };
 
 export default function ItemsPage() {
-  const { selectedGroupId, groups, memoryModeForGroupId, totalStagesForGroupId } =
-    useGroups();
+  const { groups, memoryModeForGroupId, totalStagesForGroupId } = useGroups();
+  const [groupFilterIds, setGroupFilterIds] = useState<Set<number>>(new Set());
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -80,6 +80,13 @@ export default function ItemsPage() {
     [formMemoryMode]
   );
 
+  const defaultCreateGroupId = useMemo(() => {
+    const realIds = Array.from(groupFilterIds).filter(
+      (id) => id !== UNGROUPED_GROUP_ID
+    );
+    return realIds.length === 1 ? realIds[0] : null;
+  }, [groupFilterIds]);
+
   const groupName = (id: number | null) =>
     id == null ? "无分组" : groups.find((g) => g.id === id)?.name ?? "未知分组";
 
@@ -92,7 +99,7 @@ export default function ItemsPage() {
     setLoading(true);
     try {
       const res = await itemApi.list(
-        selectedGroupId,
+        groupFilterIds,
         null,
         debouncedSearch || undefined
       );
@@ -100,7 +107,7 @@ export default function ItemsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedGroupId, debouncedSearch]);
+  }, [groupFilterIds, debouncedSearch]);
 
   useEffect(() => {
     load();
@@ -254,7 +261,7 @@ export default function ItemsPage() {
   const openCreate = () => {
     setEditingId(null);
     setFormError("");
-    setForm({ ...emptyForm, group_id: selectedGroupId });
+    setForm({ ...emptyForm, group_id: defaultCreateGroupId });
     setModalOpen(true);
   };
 
@@ -316,7 +323,7 @@ export default function ItemsPage() {
     setBulkLoading(true);
     try {
       const res = await itemApi.joinPlanAll(
-        selectedGroupId,
+        groupFilterIds,
         debouncedSearch || undefined
       );
       if (res.data.count > 0) {
@@ -332,7 +339,7 @@ export default function ItemsPage() {
     setBulkLoading(true);
     try {
       const res = await itemApi.leavePlanAll(
-        selectedGroupId,
+        groupFilterIds,
         debouncedSearch || undefined
       );
       if (res.data.count > 0) {
@@ -346,25 +353,28 @@ export default function ItemsPage() {
 
   const inPlanCount = items.filter((it) => it.in_plan).length;
   const notInPlanCount = items.length - inPlanCount;
+  const emptyMessage = debouncedSearch
+    ? "没有匹配的卡片"
+    : isGroupFilterActive(groupFilterIds)
+      ? "当前筛选条件下没有卡片"
+      : "还没有学习卡片，点击右上角添加卡片开始录入";
 
   return (
     <div className={selectMode ? "pb-24" : undefined}>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">普通卡片</h1>
+          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">记忆卡片</h1>
           <p className="text-sm text-slate-400 dark:text-slate-500">
-            新建卡片后需加入复习计划才会收到提醒，点击日历图标加入计划
+            新建记忆卡片后需加入复习计划才会收到提醒，点击日历图标加入计划
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
-          <PageGroupFilter />
           <button
             type="button"
             onClick={openCreate}
-            title="新建卡片"
-            className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition hover:bg-blue-700"
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
           >
-            <PlusIcon />
+            添加卡片
           </button>
         </div>
       </div>
@@ -375,10 +385,6 @@ export default function ItemsPage() {
 
       {loading ? (
         <p className="text-slate-400 dark:text-slate-500">加载中...</p>
-      ) : items.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 py-16 text-center text-slate-400 dark:text-slate-500">
-          {debouncedSearch ? "没有匹配的卡片" : "还没有学习卡片，点击右上角加号新建"}
-        </div>
       ) : (
         <>
           <div className="mb-2 flex items-center justify-between gap-3">
@@ -404,8 +410,17 @@ export default function ItemsPage() {
               >
                 {bulkLoading ? "处理中..." : "全部移出计划"}
               </button>
+              <PageGroupFilter
+                selectedIds={groupFilterIds}
+                onChange={setGroupFilterIds}
+              />
             </div>
           </div>
+          {items.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 py-16 text-center text-slate-400 dark:text-slate-500">
+              {emptyMessage}
+            </div>
+          ) : (
           <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 dark:bg-slate-800/60 text-left text-slate-500 dark:text-slate-400">
@@ -527,6 +542,7 @@ export default function ItemsPage() {
             </tbody>
           </table>
         </div>
+          )}
         </>
       )}
 

@@ -4,10 +4,10 @@ MemoryMode = Literal["ebbinghaus", "daily_7", "daily_15", "daily_30"]
 
 DEFAULT_MEMORY_MODE: MemoryMode = "ebbinghaus"
 
-# 艾宾浩斯：当天 + 1/3/7/15/30/60/180 天
+# 艾宾浩斯：当天（第 1 轮）+ 3/7/15/30/60/180 天
 # 连续巩固：从学习日起连续 N 天每日复习
 SCHEDULES: dict[str, list[int]] = {
-    "ebbinghaus": [0, 1, 3, 7, 15, 30, 60, 180],
+    "ebbinghaus": [0, 3, 7, 15, 30, 60, 180],
     "daily_7": list(range(7)),
     "daily_15": list(range(15)),
     "daily_30": list(range(30)),
@@ -21,7 +21,7 @@ MEMORY_MODE_LABELS: dict[str, str] = {
 }
 
 MEMORY_MODE_DESCRIPTIONS: dict[str, str] = {
-    "ebbinghaus": "当天、第 1/3/7/15/30/60/180 天复习，适合长期记忆",
+    "ebbinghaus": "当天、3/7/15/30/60/180 天后复习，适合长期记忆",
     "daily_7": "连续 7 天每日复习，适合短期突击",
     "daily_15": "连续 15 天每日复习，适合中期巩固",
     "daily_30": "连续 30 天每日复习，适合深度养成习惯",

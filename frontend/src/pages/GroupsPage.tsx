@@ -14,8 +14,6 @@ export default function GroupsPage() {
   const {
     groups,
     refreshGroups,
-    selectedGroupId,
-    setSelectedGroupId,
     memoryModeLabelForGroupId,
   } = useGroups();
   const [name, setName] = useState("");
@@ -56,7 +54,6 @@ export default function GroupsPage() {
   const handleDelete = async (id: number) => {
     if (!confirm("删除分组会同时删除组内所有卡片和单词，确定继续？")) return;
     await groupApi.remove(id);
-    if (selectedGroupId === id) setSelectedGroupId(null);
     await refreshGroups();
   };
 

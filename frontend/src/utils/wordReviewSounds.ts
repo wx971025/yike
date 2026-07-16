@@ -125,9 +125,12 @@ export async function playBackspaceSound(): Promise<void> {
   });
 }
 
-/** 回车确认：换行铃 */
+/** 回车确认：低沉轻柔的击键音（避免铃声过尖） */
 export async function playEnterSound(): Promise<void> {
-  await playSample("bell", { volume: 0.9 });
+  await playSample("key", {
+    volume: 0.55,
+    playbackRate: 0.7 + Math.random() * 0.04,
+  });
 }
 
 /** 空格确认：空格键实录 */
@@ -143,7 +146,6 @@ export async function warmUpKeyboardSounds(): Promise<void> {
   if (!keyboardSoundEnabled) return;
   await getAudioContext();
   await Promise.all([
-    loadBuffer("bell"),
     loadBuffer("key"),
     loadBuffer("space"),
   ]);

@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -8,6 +8,7 @@ from ..deps import get_current_user
 from ..models import Group, Item, User
 from ..schemas import BulkPlanResult, ItemCreate, ItemOut, ItemUpdate
 from ..dates import app_today
+from ..services.group_filter import apply_group_ids_filter
 from ..services.items import api_duplicate_title_detail, find_item_in_group
 from ..services.memory_schedule import last_stage_index, normalize_memory_mode
 from ..services.review import learned_at_for_stage, mark_reviewed, skip_today
@@ -46,14 +47,14 @@ def _memory_mode_for_group(
 @router.get("", response_model=list[ItemOut])
 def list_items(
     group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     in_plan: bool | None = None,
     q: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     query = db.query(Item).filter(Item.user_id == user.id)
-    if group_id is not None:
-        query = query.filter(Item.group_id == group_id)
+    query = apply_group_ids_filter(query, Item.group_id, group_id, group_ids)
     if in_plan is not None:
         query = query.filter(Item.in_plan == in_plan)
     if q:
@@ -101,12 +102,12 @@ def _filter_items_query(
     user: User,
     db: Session,
     group_id: int | None,
+    group_ids: list[int] | None,
     q: str | None,
     in_plan: bool | None,
 ):
     query = db.query(Item).filter(Item.user_id == user.id)
-    if group_id is not None:
-        query = query.filter(Item.group_id == group_id)
+    query = apply_group_ids_filter(query, Item.group_id, group_id, group_ids)
     if in_plan is not None:
         query = query.filter(Item.in_plan == in_plan)
     if q:
@@ -117,11 +118,12 @@ def _filter_items_query(
 @router.post("/join-plan-all", response_model=BulkPlanResult)
 def join_plan_all(
     group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     q: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    items = _filter_items_query(user, db, group_id, q, in_plan=False).all()
+    items = _filter_items_query(user, db, group_id, group_ids, q, in_plan=False).all()
     today = app_today()
     for item in items:
         item.in_plan = True
@@ -138,11 +140,12 @@ def join_plan_all(
 @router.post("/leave-plan-all", response_model=BulkPlanResult)
 def leave_plan_all(
     group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     q: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    items = _filter_items_query(user, db, group_id, q, in_plan=True).all()
+    items = _filter_items_query(user, db, group_id, group_ids, q, in_plan=True).all()
     for item in items:
         item.in_plan = False
     db.commit()
@@ -152,11 +155,12 @@ def leave_plan_all(
 @router.post("/delete-all", response_model=BulkPlanResult)
 def delete_all(
     group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     q: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    items = _filter_items_query(user, db, group_id, q, in_plan=None).all()
+    items = _filter_items_query(user, db, group_id, group_ids, q, in_plan=None).all()
     count = len(items)
     for item in items:
         db.delete(item)

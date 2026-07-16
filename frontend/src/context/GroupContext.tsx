@@ -11,8 +11,6 @@ import { MEMORY_MODES, getTotalStages, normalizeMemoryMode } from "../types";
 
 interface GroupState {
   groups: Group[];
-  selectedGroupId: number | null;
-  setSelectedGroupId: (id: number | null) => void;
   refreshGroups: () => Promise<void>;
   memoryModeForGroupId: (groupId: number | null) => MemoryMode;
   totalStagesForGroupId: (groupId: number | null) => number;
@@ -23,7 +21,6 @@ const GroupContext = createContext<GroupState | undefined>(undefined);
 
 export function GroupProvider({ children }: { children: ReactNode }) {
   const [groups, setGroups] = useState<Group[]>([]);
-  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
 
   const refreshGroups = async () => {
     const res = await groupApi.list();
@@ -52,8 +49,6 @@ export function GroupProvider({ children }: { children: ReactNode }) {
     <GroupContext.Provider
       value={{
         groups,
-        selectedGroupId,
-        setSelectedGroupId,
         refreshGroups,
         memoryModeForGroupId,
         totalStagesForGroupId,

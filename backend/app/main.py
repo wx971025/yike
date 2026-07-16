@@ -4,6 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from .database import Base, engine
 from .middleware.ip_log import IpLogMiddleware
 from .migrations import (
+    migrate_ebbinghaus_schedule_v3,
+    migrate_reminders_v1,
+    migrate_confusable_pairs_v1,
+    migrate_example_translation_v1,
+    migrate_word_examples_v2,
     migrate_in_plan,
     migrate_last_reviewed_at,
     migrate_review_stages,
@@ -12,7 +17,7 @@ from .migrations import (
     migrate_user_profile,
     migrate_group_memory_mode,
 )
-from .routers import ai, auth, calendar, dictionary, groups, items, skills, words
+from .routers import ai, auth, calendar, confusable_pairs, dictionary, groups, items, reminders, skills, words
 from .services.dictionary import schedule_dictionary_setup
 
 Base.metadata.create_all(bind=engine)
@@ -23,6 +28,11 @@ migrate_skipped_at()
 migrate_user_profile()
 migrate_user_ai_config()
 migrate_group_memory_mode()
+migrate_ebbinghaus_schedule_v3()
+migrate_reminders_v1()
+migrate_confusable_pairs_v1()
+migrate_example_translation_v1()
+migrate_word_examples_v2()
 
 app = FastAPI(title="忆刻 API")
 
@@ -39,6 +49,8 @@ app.include_router(auth.router)
 app.include_router(groups.router)
 app.include_router(items.router)
 app.include_router(words.router)
+app.include_router(confusable_pairs.router)
+app.include_router(reminders.router)
 app.include_router(calendar.router)
 app.include_router(ai.router)
 app.include_router(skills.router)

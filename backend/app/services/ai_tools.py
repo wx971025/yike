@@ -71,7 +71,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "group_name": {"type": "string", "description": "所属分组名称，可选"},
                     "stage_index": {
                         "type": "integer",
-                        "description": "当前复习周期：0=立即复习, 1=1天后, 2=3天后, 3=7天后, 4=15天后, 5=30天后, 6=60天后, 7=180天后。默认0",
+                        "description": "当前复习周期：0=当天(第1轮), 1=3天后(第2轮), 2=7天后(第3轮), 3=15天后(第4轮), 4=30天后(第5轮), 5=60天后(第6轮), 6=180天后(第7轮)。默认0",
                     },
                 },
                 "required": ["title"],
@@ -181,7 +181,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "mark_item_reviewed",
-            "description": "将某一张普通卡片标记为当前阶段已复习",
+            "description": "将某一张记忆卡片标记为当前阶段已复习",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -195,7 +195,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "mark_all_today_reviews",
-            "description": "批量将今天所有待复习的普通卡片标记为已复习。用户说复习完了、全部标记、需要、好的时直接调用，不要再询问确认。",
+            "description": "批量将今天所有待复习的记忆卡片标记为已复习。用户说复习完了、全部标记、需要、好的时直接调用，不要再询问确认。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -263,7 +263,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "group_name": {"type": "string", "description": "所属分组名称，可选"},
                     "stage_index": {
                         "type": "integer",
-                        "description": "当前复习周期：0=立即复习, 1=1天后, 2=3天后, 3=7天后, 4=15天后, 5=30天后, 6=60天后, 7=180天后。默认0",
+                        "description": "当前复习周期：0=当天(第1轮), 1=3天后(第2轮), 2=7天后(第3轮), 3=15天后(第4轮), 4=30天后(第5轮), 5=60天后(第6轮), 6=180天后(第7轮)。默认0",
                     },
                 },
                 "required": ["word"],
@@ -753,7 +753,7 @@ def execute_tool(
             mark_reviewed(item, memory_mode=memory_mode)
             marked.append(item.title)
         if not marked:
-            return json.dumps({"marked_count": 0, "message": "今天没有待复习的普通卡片"}, ensure_ascii=False), effects
+            return json.dumps({"marked_count": 0, "message": "今天没有待复习的记忆卡片"}, ensure_ascii=False), effects
         db.commit()
         effects.extend(["items", "reviews"])
         return (
@@ -842,12 +842,13 @@ def execute_tool(
         if not word_text:
             return json.dumps({"error": "单词不能为空"}, ensure_ascii=False), effects
 
-        word_text, phonetic, pos, meaning, example, dict_found = enrich_word_fields(
+        word_text, phonetic, pos, meaning, example, example_translation, dict_found = enrich_word_fields(
             word_text,
             phonetic=arguments.get("phonetic") or "",
             pos=arguments.get("pos") or "",
             meaning=arguments.get("meaning") or "",
             example=arguments.get("example") or "",
+            example_translation=arguments.get("example_translation") or "",
         )
 
         if not meaning:
@@ -893,6 +894,7 @@ def execute_tool(
             pos=pos,
             meaning=meaning,
             example=example,
+            example_translation=example_translation,
             learned_at=learned_at,
             stage_index=stage_index,
             in_plan=True,

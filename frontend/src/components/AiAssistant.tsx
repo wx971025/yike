@@ -336,7 +336,7 @@ export default function AiAssistant({ collapsed, onToggle }: AiAssistantProps) {
             </button>
           </div>
         </form>
-        <div className="flex justify-center px-3 pb-2">
+        <div className="flex justify-start px-3 pb-2">
           <IconButton
             title="清除上下文"
             onClick={() => setClearConfirmOpen(true)}

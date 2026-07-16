@@ -8,6 +8,22 @@ export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 
 const api = axios.create({
   baseURL: "/api",
+  paramsSerializer: {
+    serialize: (params) => {
+      const searchParams = new URLSearchParams();
+      for (const [key, value] of Object.entries(params)) {
+        if (value == null || value === "") continue;
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            searchParams.append(key, String(item));
+          }
+          continue;
+        }
+        searchParams.append(key, String(value));
+      }
+      return searchParams.toString();
+    },
+  },
 });
 
 api.interceptors.request.use((config) => {

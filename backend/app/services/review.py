@@ -9,8 +9,8 @@ from .memory_schedule import (
     normalize_memory_mode,
 )
 
-# 兼容旧引用：默认艾宾浩斯间隔
-INTERVALS = [1, 3, 7, 15, 30, 60, 180]
+# 兼容旧引用：默认艾宾浩斯间隔（当天起，下一轮 3 天后）
+INTERVALS = [3, 7, 15, 30, 60, 180]
 REVIEW_DAYS = get_review_days(DEFAULT_MEMORY_MODE)
 TOTAL_STAGES = len(REVIEW_DAYS)
 LAST_STAGE = last_stage_index(DEFAULT_MEMORY_MODE)
@@ -70,6 +70,20 @@ def mark_reviewed(
 def skip_today(item: Item, today: date | None = None) -> None:
     today = today or app_today()
     item.skipped_at = today
+
+
+def reset_to_first_stage(
+    item: Item,
+    today: date | None = None,
+) -> None:
+    """查看答案后重置到第 1 轮复习（当天）。"""
+    today = today or app_today()
+    item.stage_index = 0
+    item.learned_at = today
+    item.stage_status = "pending"
+    item.status = "active"
+    item.skipped_at = None
+    item.last_reviewed_at = None
 
 
 def upcoming_due_dates(

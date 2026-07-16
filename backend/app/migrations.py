@@ -1,3 +1,5 @@
+import json
+
 from sqlalchemy import text
 
 from .database import engine
@@ -164,5 +166,201 @@ def migrate_group_memory_mode() -> None:
         conn.execute(
             text(
                 "INSERT INTO schema_meta (key, value) VALUES ('group_memory_mode_v1', '1')"
+            )
+        )
+
+
+def migrate_ebbinghaus_schedule_v3() -> None:
+    """艾宾浩斯间隔去掉「学习后 1 天」：stage 索引 2+ 前移一位。"""
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text(
+                "SELECT value FROM schema_meta WHERE key = 'ebbinghaus_schedule_v3'"
+            )
+        ).fetchone()
+        if done:
+            return
+
+        ebbinghaus_group_filter = (
+            "group_id IS NULL OR group_id IN ("
+            "SELECT id FROM groups WHERE memory_mode = 'ebbinghaus' "
+            "OR memory_mode IS NULL OR memory_mode = '')"
+        )
+        for table in ("items", "words"):
+            conn.execute(
+                text(
+                    f"UPDATE {table} SET stage_index = CASE "
+                    "WHEN stage_index <= 1 THEN stage_index "
+                    "ELSE stage_index - 1 END "
+                    f"WHERE ({ebbinghaus_group_filter}) AND status = 'active'"
+                )
+            )
+
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES "
+                "('ebbinghaus_schedule_v3', '1')"
+            )
+        )
+
+
+def migrate_reminders_v1() -> None:
+    """创建事项提醒表。"""
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text("SELECT value FROM schema_meta WHERE key = 'reminders_v1'")
+        ).fetchone()
+        if done:
+            return
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS reminders ("
+                "id INTEGER PRIMARY KEY, "
+                "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                "title VARCHAR(255) NOT NULL, "
+                "remind_date DATE NOT NULL, "
+                "recurrence VARCHAR(16), "
+                "in_plan BOOLEAN NOT NULL DEFAULT 1, "
+                "last_done_at DATE, "
+                "created_at DATETIME, "
+                "updated_at DATETIME)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_reminders_user_id "
+                "ON reminders (user_id)"
+            )
+        )
+        conn.execute(
+            text("INSERT INTO schema_meta (key, value) VALUES ('reminders_v1', '1')")
+        )
+
+
+def migrate_confusable_pairs_v1() -> None:
+    """创建易混词对表。"""
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text("SELECT value FROM schema_meta WHERE key = 'confusable_pairs_v1'")
+        ).fetchone()
+        if done:
+            return
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS confusable_pairs ("
+                "id INTEGER PRIMARY KEY, "
+                "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                "group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE, "
+                "source_word_id INTEGER REFERENCES words(id) ON DELETE SET NULL, "
+                "word_a VARCHAR(255) NOT NULL, "
+                "phonetic_a VARCHAR(128) DEFAULT '', "
+                "pos_a VARCHAR(32) DEFAULT '', "
+                "meaning_a TEXT NOT NULL, "
+                "example_a TEXT DEFAULT '', "
+                "word_b VARCHAR(255) NOT NULL, "
+                "phonetic_b VARCHAR(128) DEFAULT '', "
+                "pos_b VARCHAR(32) DEFAULT '', "
+                "meaning_b TEXT NOT NULL, "
+                "example_b TEXT DEFAULT '', "
+                "learned_at DATE NOT NULL, "
+                "stage_index INTEGER NOT NULL DEFAULT 0, "
+                "stage_status VARCHAR(16) NOT NULL DEFAULT 'pending', "
+                "status VARCHAR(16) NOT NULL DEFAULT 'active', "
+                "in_plan BOOLEAN NOT NULL DEFAULT 1, "
+                "last_reviewed_at DATE, "
+                "skipped_at DATE, "
+                "created_at DATETIME, "
+                "updated_at DATETIME)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_confusable_pairs_user_id "
+                "ON confusable_pairs (user_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES "
+                "('confusable_pairs_v1', '1')"
+            )
+        )
+
+
+def migrate_word_examples_v2() -> None:
+    """为单词添加多条例句 JSON 字段。"""
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text("SELECT value FROM schema_meta WHERE key = 'word_examples_v2'")
+        ).fetchone()
+        if done:
+            return
+        existing = conn.execute(text("PRAGMA table_info(words)")).fetchall()
+        names = {row[1] for row in existing}
+        if "examples_json" not in names:
+            conn.execute(
+                text("ALTER TABLE words ADD COLUMN examples_json TEXT DEFAULT '[]'")
+            )
+        rows = conn.execute(
+            text("SELECT id, example, example_translation FROM words")
+        ).fetchall()
+        for row in rows:
+            example = (row[1] or "").strip()
+            translation = (row[2] or "").strip()
+            if not example and not translation:
+                payload = "[]"
+            else:
+                payload = json.dumps(
+                    [{"en": example, "zh": translation}],
+                    ensure_ascii=False,
+                )
+            conn.execute(
+                text("UPDATE words SET examples_json = :payload WHERE id = :id"),
+                {"payload": payload, "id": row[0]},
+            )
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES "
+                "('word_examples_v2', '1')"
+            )
+        )
+
+
+def migrate_example_translation_v1() -> None:
+    """为单词与易混词对添加例句中文翻译字段。"""
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text("SELECT value FROM schema_meta WHERE key = 'example_translation_v1'")
+        ).fetchone()
+        if done:
+            return
+        for table, columns in (
+            ("words", ("example_translation",)),
+            (
+                "confusable_pairs",
+                ("example_a_translation", "example_b_translation"),
+            ),
+        ):
+            for column in columns:
+                existing = conn.execute(
+                    text(f"PRAGMA table_info({table})")
+                ).fetchall()
+                names = {row[1] for row in existing}
+                if column not in names:
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE {table} "
+                            f"ADD COLUMN {column} TEXT DEFAULT ''"
+                        )
+                    )
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES "
+                "('example_translation_v1', '1')"
             )
         )

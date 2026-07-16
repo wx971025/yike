@@ -11,13 +11,15 @@ def enrich_word_fields(
     pos: str = "",
     meaning: str = "",
     example: str = "",
-) -> tuple[str, str, str, str, str, bool]:
-    """用词典补全未填写的字段，返回 (word, phonetic, pos, meaning, example, dict_found)。"""
+    example_translation: str = "",
+) -> tuple[str, str, str, str, str, str, bool]:
+    """用词典补全未填写的字段。"""
     word_text = word.strip()
     phonetic = phonetic.strip()
     pos = pos.strip()
     meaning = meaning.strip()
     example = example.strip()
+    example_translation = example_translation.strip()
 
     entry = lookup_word(word_text)
     if entry.found:
@@ -28,10 +30,16 @@ def enrich_word_fields(
             pos = entry.pos
         if not meaning:
             meaning = entry.meaning
-        if not example:
-            example = entry.example
 
-    return word_text, phonetic, pos, meaning, example, entry.found
+    return (
+        word_text,
+        phonetic,
+        pos,
+        meaning,
+        example,
+        example_translation,
+        entry.found,
+    )
 
 
 def find_word_in_group(
