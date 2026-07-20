@@ -3,6 +3,8 @@
 
 from pathlib import Path
 
+import tzdata
+
 block_cipher = None
 
 ROOT = Path(SPECPATH)
@@ -13,6 +15,7 @@ ASSETS = PKG / "assets"
 backend_app = WORKSPACE / "backend" / "app"
 frontend_dist = WORKSPACE / "frontend" / "dist"
 bundled_dict = ASSETS / "ecdict.db"
+tzdata_zoneinfo = Path(tzdata.__file__).resolve().parent / "zoneinfo"
 
 if not backend_app.is_dir():
     raise SystemExit(f"缺少 backend，请先 sync-source: {backend_app}")
@@ -23,11 +26,14 @@ if not bundled_dict.is_file():
         f"缺少内置词典 {bundled_dict}\n"
         "请先运行 scripts/download-ecdict.ps1（构建机联网一次即可）"
     )
+if not tzdata_zoneinfo.is_dir():
+    raise SystemExit("缺少 tzdata 时区数据，请 pip install tzdata")
 
 datas = [
     (str(frontend_dist), "frontend_dist"),
     (str(backend_app), "app"),
     (str(bundled_dict), "bundled_data"),
+    (str(tzdata_zoneinfo), "tzdata"),
 ]
 
 a = Analysis(
@@ -81,6 +87,8 @@ a = Analysis(
         "jose.jwt",
         "httpx",
         "sqlalchemy.ext.baked",
+        "tzdata",
+        "zoneinfo",
     ],
     hookspath=[],
     hooksconfig={},

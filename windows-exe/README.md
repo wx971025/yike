@@ -133,4 +133,5 @@ windows-exe/
 | 缺少 `assets/ecdict.db` | 运行 `scripts/download-ecdict.ps1` |
 | exe 很大 | 正常，内含约 200MB 词典 |
 | 查词不可用 | 确认构建时词典已下载并被打包 |
+| exe 启动报 `Asia/Shanghai` 时区错误 | 需重新打包（已内置 tzdata）；旧版 exe 请重新下载 Actions 产物 |
 | AI 不可用 | 离线设计如此；配置 API 后可联网使用 |

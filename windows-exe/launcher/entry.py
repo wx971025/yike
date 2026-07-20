@@ -41,6 +41,7 @@ def _configure_environment(runtime: Path, data_root: Path) -> None:
 
     if getattr(sys, "frozen", False):
         os.environ.setdefault("YIKE_STATIC_DIR", str(runtime / "frontend_dist"))
+        os.environ.setdefault("TZPATH", str(runtime / "tzdata"))
         bundled_dict = runtime / "bundled_data" / "ecdict.db"
         if bundled_dict.is_file():
             os.environ.setdefault("YIKE_BUNDLED_DICT", str(bundled_dict))
