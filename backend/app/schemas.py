@@ -1,7 +1,8 @@
 from datetime import date, datetime
+import json
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class UserCreate(BaseModel):
@@ -95,11 +96,15 @@ class Token(BaseModel):
 class GroupCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     memory_mode: str = Field(default="ebbinghaus", max_length=32)
+    color: str | None = Field(default=None, max_length=7)
+    category: str = Field(default="memory_card", max_length=16)
 
 
 class GroupUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     memory_mode: str | None = Field(default=None, max_length=32)
+    color: str | None = Field(default=None, max_length=7)
+    category: str | None = Field(default=None, max_length=16)
 
 
 class GroupOut(BaseModel):
@@ -108,13 +113,15 @@ class GroupOut(BaseModel):
     id: int
     name: str
     memory_mode: str
+    color: str
+    category: str
     created_at: datetime
 
 
 class ItemCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str = ""
-    group_id: int | None = None
+    group_id: int
     learned_at: date | None = None
     stage_index: int = Field(default=0, ge=0, le=29)
 
@@ -197,6 +204,7 @@ class ReminderCreate(BaseModel):
     recurring: bool = False
     recurrence: str | None = None
     in_plan: bool = True
+    group_id: int
 
 
 class ReminderUpdate(BaseModel):
@@ -205,12 +213,14 @@ class ReminderUpdate(BaseModel):
     recurring: bool | None = None
     recurrence: str | None = None
     in_plan: bool | None = None
+    group_id: int | None = None
 
 
 class ReminderOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    group_id: int | None
     title: str
     remind_date: date
     recurrence: str | None
@@ -246,7 +256,7 @@ class WordCreate(BaseModel):
     example: str = ""
     example_translation: str = ""
     examples: list[WordExampleItem] = Field(default_factory=list, max_length=3)
-    group_id: int | None = None
+    group_id: int
     learned_at: date | None = None
     stage_index: int = Field(default=0, ge=0, le=29)
     in_plan: bool = True
@@ -347,6 +357,7 @@ class ConfusablePairOut(BaseModel):
     meaning_b: str
     example_b: str
     example_b_translation: str
+    diff_analysis: dict | None = None
     learned_at: date
     stage_index: int
     stage_status: str
@@ -356,6 +367,26 @@ class ConfusablePairOut(BaseModel):
     skipped_at: date | None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("diff_analysis", mode="before")
+    @classmethod
+    def parse_diff_analysis(cls, value: object) -> dict | None:
+        if value is None or value == "":
+            return None
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return None
+            return parsed if isinstance(parsed, dict) else None
+        return None
+
+
+class ConfusableDiffAnalysisResponse(BaseModel):
+    cached: bool
+    analysis: dict
 
 
 class ReviewConfusablePairOut(ConfusablePairOut):

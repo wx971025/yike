@@ -8,6 +8,12 @@ from ..deps import get_current_user
 from ..models import Group, Item, User
 from ..schemas import BulkPlanResult, ItemCreate, ItemOut, ItemUpdate
 from ..dates import app_today
+from ..services.group_category import (
+    GROUP_CATEGORY_MEMORY_CARD,
+    ensure_group_matches_category,
+    fetch_owned_group,
+    require_group_id,
+)
 from ..services.group_filter import apply_group_ids_filter
 from ..services.items import api_duplicate_title_detail, find_item_in_group
 from ..services.memory_schedule import last_stage_index, normalize_memory_mode
@@ -24,11 +30,23 @@ def _get_owned_item(item_id: int, user: User, db: Session) -> Item:
 
 
 def _validate_group(group_id: int | None, user: User, db: Session) -> None:
-    if group_id is None:
-        return
-    group = db.query(Group).filter(Group.id == group_id, Group.user_id == user.id).first()
+    try:
+        require_group_id(group_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    group = fetch_owned_group(group_id, user, db)
     if not group:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="分组不存在")
+    try:
+        ensure_group_matches_category(group, GROUP_CATEGORY_MEMORY_CARD)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 def _memory_mode_for_group(

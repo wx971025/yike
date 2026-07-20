@@ -1,11 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_user
 from ..models import Group, User
 from ..schemas import GroupCreate, GroupOut, GroupUpdate
+from ..services.group_category import (
+    normalize_group_category,
+)
+from ..services.group_color import normalize_group_color, preset_color_for_index
 from ..services.memory_schedule import SCHEDULES, normalize_memory_mode
+from ..services.reminder_mode import normalize_reminder_mode, is_valid_reminder_mode
 
 router = APIRouter(prefix="/api/groups", tags=["groups"])
 
@@ -28,15 +33,51 @@ def _validate_memory_mode(mode: str | None) -> str:
     return mode
 
 
+def _validate_group_schedule_mode(mode: str | None, category: str) -> str:
+    normalized_category = normalize_group_category(category)
+    if normalized_category == "reminder":
+        if mode is not None and not is_valid_reminder_mode(mode):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="无效的提醒方式",
+            )
+        return normalize_reminder_mode(mode)
+    return _validate_memory_mode(mode)
+
+
+def _validate_color(color: str | None) -> str:
+    try:
+        return normalize_group_color(color)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+def _validate_category(category: str | None, *, default: str | None = None) -> str:
+    try:
+        return normalize_group_category(category, default=default or "memory_card")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
 @router.get("", response_model=list[GroupOut])
 def list_groups(
     q: str | None = None,
+    category: str | None = Query(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     query = db.query(Group).filter(Group.user_id == user.id)
     if q:
         query = query.filter(Group.name.ilike(f"%{q}%"))
+    if category is not None:
+        normalized = _validate_category(category)
+        query = query.filter(Group.category == normalized)
     return query.order_by(Group.created_at.asc()).all()
 
 
@@ -46,10 +87,18 @@ def create_group(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    existing_count = db.query(Group).filter(Group.user_id == user.id).count()
+    category = _validate_category(payload.category)
     group = Group(
         user_id=user.id,
         name=payload.name,
-        memory_mode=_validate_memory_mode(payload.memory_mode),
+        memory_mode=_validate_group_schedule_mode(payload.memory_mode, category),
+        category=category,
+        color=(
+            _validate_color(payload.color)
+            if payload.color is not None
+            else preset_color_for_index(existing_count)
+        ),
     )
     db.add(group)
     db.commit()
@@ -68,7 +117,17 @@ def update_group(
     if payload.name is not None:
         group.name = payload.name
     if payload.memory_mode is not None:
-        group.memory_mode = _validate_memory_mode(payload.memory_mode)
+        category = payload.category if payload.category is not None else group.category
+        group.memory_mode = _validate_group_schedule_mode(payload.memory_mode, category)
+    if payload.color is not None:
+        group.color = _validate_color(payload.color)
+    if payload.category is not None:
+        new_category = _validate_category(payload.category)
+        if new_category != group.category:
+            group.category = new_category
+            group.memory_mode = _validate_group_schedule_mode(group.memory_mode, new_category)
+        else:
+            group.category = new_category
     db.commit()
     db.refresh(group)
     return group

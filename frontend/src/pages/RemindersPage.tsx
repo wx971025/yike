@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { reminderApi, type ReminderPayload } from "../api";
 import ItemActionsMenu from "../components/ItemActionsMenu";
+import GroupTag from "../components/GroupTag";
+import PageGroupFilter from "../components/PageGroupFilter";
 import PlanMultiSelectBar, {
   MultiSelectToggleButton,
   SelectCheckbox,
@@ -12,10 +14,12 @@ import {
 } from "../components/ItemIcons";
 import SearchBox from "../components/SearchBox";
 import SortableHeader from "../components/SortableHeader";
+import ScheduleModePicker from "../components/ScheduleModePicker";
+import { useGroups } from "../context/GroupContext";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { type Reminder } from "../types";
 import {
-  RECURRENCE_OPTIONS,
+  normalizeReminderMode,
   recurrenceLabel,
   type RecurrenceValue,
 } from "../utils/reminderSchedule";
@@ -25,6 +29,8 @@ import {
   toggleSortDirection,
   type SortDirection,
 } from "../utils/sort";
+import { filterGroupsByCategory } from "../utils/groupCategory";
+import { ensureGroupsBeforeCreate } from "../utils/groupRequired";
 import { todayStr } from "../utils/reviewSchedule";
 
 function formatCreatedAt(iso: string): string {
@@ -44,9 +50,16 @@ const emptyForm: ReminderPayload = {
   recurring: false,
   recurrence: "daily",
   in_plan: true,
+  group_id: 0,
 };
 
 export default function RemindersPage() {
+  const { groups } = useGroups();
+  const reminderGroups = useMemo(
+    () => filterGroupsByCategory(groups, "reminder"),
+    [groups]
+  );
+  const [groupFilterIds, setGroupFilterIds] = useState<Set<number>>(new Set());
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -81,12 +94,12 @@ export default function RemindersPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await reminderApi.list(null, debouncedSearch || undefined);
+      const res = await reminderApi.list(null, debouncedSearch || undefined, groupFilterIds);
       setReminders(res.data);
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearch]);
+  }, [debouncedSearch, groupFilterIds]);
 
   useEffect(() => {
     load();
@@ -132,9 +145,20 @@ export default function RemindersPage() {
     : "还没有事项，点击右上角添加事项";
 
   const openCreate = () => {
+    const check = ensureGroupsBeforeCreate(groups, "reminder", groupFilterIds);
+    if (!check.ok) {
+      window.alert(check.message);
+      return;
+    }
+    const defaultGroup = reminderGroups.find((group) => group.id === check.groupId);
     setEditingId(null);
     setFormError("");
-    setForm({ ...emptyForm, remind_date: todayStr() });
+    setForm({
+      ...emptyForm,
+      remind_date: todayStr(),
+      group_id: check.groupId,
+      recurrence: normalizeReminderMode(defaultGroup?.memory_mode),
+    });
     setModalOpen(true);
   };
 
@@ -145,8 +169,9 @@ export default function RemindersPage() {
       title: reminder.title,
       remind_date: reminder.remind_date,
       recurring: Boolean(reminder.recurrence),
-      recurrence: reminder.recurrence ?? "daily",
+      recurrence: normalizeReminderMode(reminder.recurrence),
       in_plan: reminder.in_plan,
+      group_id: reminder.group_id ?? reminderGroups[0]?.id ?? 0,
     });
     setModalOpen(true);
   };
@@ -154,6 +179,10 @@ export default function RemindersPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError("");
+    if (!form.group_id) {
+      setFormError("请选择分组");
+      return;
+    }
     try {
       const payload: ReminderPayload = {
         title: form.title,
@@ -161,6 +190,7 @@ export default function RemindersPage() {
         recurring: form.recurring,
         recurrence: form.recurring ? form.recurrence : null,
         in_plan: form.in_plan ?? true,
+        group_id: form.group_id,
       };
       if (editingId == null) {
         await reminderApi.create(payload);
@@ -330,6 +360,11 @@ export default function RemindersPage() {
               >
                 {bulkLoading ? "处理中..." : "全部移出计划"}
               </button>
+              <PageGroupFilter
+                selectedIds={groupFilterIds}
+                onChange={setGroupFilterIds}
+                category="reminder"
+              />
             </div>
           </div>
 
@@ -399,7 +434,10 @@ export default function RemindersPage() {
                         {index + 1}
                       </td>
                       <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">
-                        {reminder.title}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{reminder.title}</span>
+                          <GroupTag groupId={reminder.group_id} />
+                        </div>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-500 dark:text-slate-400">
                         {reminder.remind_date}
@@ -490,6 +528,30 @@ export default function RemindersPage() {
             )}
 
             <label className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">
+              分组
+            </label>
+            <select
+              required
+              className="mb-3 w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:focus:border-blue-400"
+              value={form.group_id || reminderGroups[0]?.id || ""}
+              onChange={(e) => {
+                const groupId = Number(e.target.value);
+                const group = reminderGroups.find((item) => item.id === groupId);
+                setForm({
+                  ...form,
+                  group_id: groupId,
+                  recurrence: normalizeReminderMode(group?.memory_mode),
+                });
+              }}
+            >
+              {reminderGroups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
+
+            <label className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">
               标题
             </label>
             <input
@@ -523,27 +585,18 @@ export default function RemindersPage() {
             </label>
 
             {form.recurring && (
-              <>
-                <label className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">
-                  循环规则
-                </label>
-                <select
-                  className="mb-3 w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:focus:border-blue-400"
+              <div className="mb-3">
+                <ScheduleModePicker
+                  category="reminder"
                   value={form.recurrence ?? "daily"}
-                  onChange={(e) =>
+                  onChange={(value) =>
                     setForm({
                       ...form,
-                      recurrence: e.target.value as RecurrenceValue,
+                      recurrence: value as RecurrenceValue,
                     })
                   }
-                >
-                  {RECURRENCE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </>
+                />
+              </div>
             )}
 
             <label className="mb-5 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">

@@ -8,6 +8,13 @@ from ..deps import get_current_user
 from ..models import Reminder, User
 from ..schemas import BulkPlanResult, ReminderCreate, ReminderOut, ReminderUpdate
 from ..dates import app_today
+from ..services.group_category import (
+    GROUP_CATEGORY_REMINDER,
+    ensure_group_matches_category,
+    fetch_owned_group,
+    require_group_id,
+)
+from ..services.group_filter import apply_group_ids_filter
 from ..services.reminder_schedule import (
     advance_remind_date,
     is_reminder_due,
@@ -30,13 +37,36 @@ def _get_owned_reminder(reminder_id: int, user: User, db: Session) -> Reminder:
     return reminder
 
 
+def _validate_group(group_id: int | None, user: User, db: Session) -> None:
+    try:
+        require_group_id(group_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    group = fetch_owned_group(group_id, user, db)
+    if not group:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="分组不存在")
+    try:
+        ensure_group_matches_category(group, GROUP_CATEGORY_REMINDER)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
 def _filter_reminders_query(
     user: User,
     db: Session,
     in_plan: bool | None,
     q: str | None,
+    group_id: int | None = None,
+    group_ids: list[int] | None = None,
 ):
     query = db.query(Reminder).filter(Reminder.user_id == user.id)
+    query = apply_group_ids_filter(query, Reminder.group_id, group_id, group_ids)
     if in_plan is not None:
         query = query.filter(Reminder.in_plan == in_plan)
     if q:
@@ -48,11 +78,13 @@ def _filter_reminders_query(
 def list_reminders(
     in_plan: bool | None = None,
     q: str | None = None,
+    group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     return (
-        _filter_reminders_query(user, db, in_plan, q)
+        _filter_reminders_query(user, db, in_plan, q, group_id, group_ids)
         .order_by(Reminder.remind_date.asc(), Reminder.title.asc())
         .all()
     )
@@ -103,8 +135,11 @@ def create_reminder(
     if not payload.recurring:
         recurrence = None
 
+    _validate_group(payload.group_id, user, db)
+
     reminder = Reminder(
         user_id=user.id,
+        group_id=payload.group_id,
         title=payload.title.strip(),
         remind_date=payload.remind_date,
         recurrence=recurrence,
@@ -142,6 +177,9 @@ def update_reminder(
         reminder.recurrence = recurrence if recurring else None
         data.pop("recurring", None)
         data.pop("recurrence", None)
+
+    if "group_id" in data:
+        _validate_group(data["group_id"], user, db)
 
     for field, value in data.items():
         if field == "title" and isinstance(value, str):
@@ -226,10 +264,14 @@ def mark_done(
 @router.post("/join-plan-all", response_model=BulkPlanResult)
 def join_plan_all(
     q: str | None = None,
+    group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    reminders = _filter_reminders_query(user, db, in_plan=False, q=q).all()
+    reminders = _filter_reminders_query(
+        user, db, in_plan=False, q=q, group_id=group_id, group_ids=group_ids
+    ).all()
     for reminder in reminders:
         reminder.in_plan = True
         reminder.last_done_at = None
@@ -240,10 +282,14 @@ def join_plan_all(
 @router.post("/leave-plan-all", response_model=BulkPlanResult)
 def leave_plan_all(
     q: str | None = None,
+    group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    reminders = _filter_reminders_query(user, db, in_plan=True, q=q).all()
+    reminders = _filter_reminders_query(
+        user, db, in_plan=True, q=q, group_id=group_id, group_ids=group_ids
+    ).all()
     for reminder in reminders:
         reminder.in_plan = False
     db.commit()
@@ -253,10 +299,14 @@ def leave_plan_all(
 @router.post("/delete-all", response_model=BulkPlanResult)
 def delete_all(
     q: str | None = None,
+    group_id: int | None = None,
+    group_ids: list[int] | None = Query(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    reminders = _filter_reminders_query(user, db, in_plan=None, q=q).all()
+    reminders = _filter_reminders_query(
+        user, db, in_plan=None, q=q, group_id=group_id, group_ids=group_ids
+    ).all()
     count = len(reminders)
     for reminder in reminders:
         db.delete(reminder)

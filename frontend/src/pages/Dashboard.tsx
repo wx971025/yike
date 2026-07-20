@@ -3,6 +3,7 @@ import { reviewApi, itemApi, wordApi, reminderApi, confusablePairApi } from "../
 import { CardKindBadge } from "../components/CardKindBadge";
 import ConfusablePairReviewCard from "../components/ConfusablePairReviewCard";
 import ForgettingCurveModal from "../components/ForgettingCurveModal";
+import GroupTag from "../components/GroupTag";
 import PageGroupFilter from "../components/PageGroupFilter";
 import WordReviewCard from "../components/WordReviewCard";
 import WordReviewSettingsMenu from "../components/WordReviewSettingsMenu";
@@ -74,7 +75,7 @@ function DueEmptyState({ kind }: { kind: "item" | "word" | "reminder" | "confusa
 }
 
 export default function Dashboard() {
-  const { groups, totalStagesForGroupId, memoryModeForGroupId } = useGroups();
+  const { totalStagesForGroupId, memoryModeForGroupId } = useGroups();
   const [dueItemGroupFilterIds, setDueItemGroupFilterIds] = useState<Set<number>>(
     new Set()
   );
@@ -101,9 +102,6 @@ export default function Dashboard() {
   const [reviewToast, setReviewToast] = useState<string | null>(null);
   const wordSessionTotalRef = useRef(0);
   const confusableSessionTotalRef = useRef(0);
-
-  const groupName = (id: number | null) =>
-    id == null ? "无分组" : groups.find((g) => g.id === id)?.name ?? "未知分组";
 
   const loadDueItems = useCallback(async () => {
     const res = await reviewApi.today(dueItemGroupFilterIds);
@@ -354,15 +352,11 @@ export default function Dashboard() {
     window.dispatchEvent(new CustomEvent("app-data-changed"));
   };
 
-  const handleConfusableDefer = (id: number) => {
-    setConfusableQueue((prev) => {
-      const index = prev.findIndex((pair) => pair.id === id);
-      if (index < 0) return prev;
-      const next = [...prev];
-      const [pair] = next.splice(index, 1);
-      next.push(pair);
-      return next;
-    });
+  const handleConfusableDelete = async (id: number) => {
+    await confusablePairApi.remove(id);
+    setConfusablePairs((prev) => prev.filter((pair) => pair.id !== id));
+    setConfusableQueue((prev) => prev.filter((pair) => pair.id !== id));
+    window.dispatchEvent(new CustomEvent("app-data-changed"));
   };
 
   const handleConfusablePairUpdated = useCallback((updated: ReviewConfusablePair) => {
@@ -370,30 +364,6 @@ export default function Dashboard() {
       pair.id === updated.id ? updated : pair;
     setConfusablePairs((prev) => prev.map(patch));
     setConfusableQueue((prev) => prev.map(patch));
-  }, []);
-
-  const handleConfusablePeekReset = useCallback(async (id: number) => {
-    try {
-      const res = await confusablePairApi.resetStage(id);
-      const updated = res.data;
-      const today = todayStr();
-      const patchPair = (pair: ReviewConfusablePair): ReviewConfusablePair =>
-        pair.id === id
-          ? {
-              ...pair,
-              stage_index: updated.stage_index,
-              learned_at: updated.learned_at,
-              status: updated.status,
-              due_date: today,
-              overdue_days: 0,
-            }
-          : pair;
-      setConfusablePairs((prev) => prev.map(patchPair));
-      setConfusableQueue((prev) => prev.map(patchPair));
-      window.dispatchEvent(new CustomEvent("app-data-changed"));
-    } catch {
-      // 重置失败不阻断当前复习流程
-    }
   }, []);
 
   const completedItems = completed.filter((entry) => entry.kind === "item");
@@ -408,9 +378,7 @@ export default function Dashboard() {
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex flex-wrap items-center gap-2">
           <CardKindBadge kind={entry.kind} />
-          <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs text-slate-500 dark:text-slate-400">
-            {groupName(entry.group_id)}
-          </span>
+          <GroupTag groupId={entry.group_id} className="ml-0" />
         </div>
         <p className="truncate font-medium text-slate-800 dark:text-slate-100">{entry.title}</p>
       </div>
@@ -583,6 +551,7 @@ export default function Dashboard() {
                 <PageGroupFilter
                   selectedIds={dueItemGroupFilterIds}
                   onChange={setDueItemGroupFilterIds}
+                  category="memory_card"
                 />
               ) : dueSubTab === "word" || dueSubTab === "confusable" ? (
                 <WordReviewSettingsMenu
@@ -599,6 +568,7 @@ export default function Dashboard() {
                 <PageGroupFilter
                   selectedIds={dueWordGroupFilterIds}
                   onChange={setDueWordGroupFilterIds}
+                  category="word"
                 />
               ) : null}
             </div>
@@ -630,9 +600,7 @@ export default function Dashboard() {
 
                     <div className="mb-1">
                       <CardKindBadge kind="item" />
-                      <span className="ml-2 inline-block rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs text-slate-500 dark:text-slate-400">
-                        {groupName(item.group_id)}
-                      </span>
+                      <GroupTag groupId={item.group_id} className="ml-2" />
                     </div>
                     <h3 className="mb-1 mt-2 font-semibold text-slate-800 dark:text-slate-100">{item.title}</h3>
                     {item.description && (
@@ -673,8 +641,8 @@ export default function Dashboard() {
           ) : (
             <div className={isWordReviewActive ? "flex min-h-0 flex-1 flex-col" : undefined}>
             <div
-              className={`flex items-center gap-2 ${
-                isWordReviewActive ? "min-h-0 flex-1" : ""
+              className={`flex gap-2 ${
+                isWordReviewActive ? "min-h-0 flex-1 items-stretch" : "items-center"
               }`}
             >
               <button
@@ -694,7 +662,7 @@ export default function Dashboard() {
               >
             <WordReviewCard
               word={wordQueue[0]}
-              groupLabel={groupName(wordQueue[0].group_id)}
+              groupId={wordQueue[0].group_id}
               currentIndex={wordSessionTotalRef.current - wordQueue.length}
               totalCount={Math.max(wordSessionTotalRef.current, wordQueue.length)}
               wordOrderMode={wordOrderMode}
@@ -729,8 +697,7 @@ export default function Dashboard() {
                 )}
                 onReviewed={handleConfusableReview}
                 onSkip={handleConfusableSkip}
-                onDefer={handleConfusableDefer}
-                onPeekAnswer={handleConfusablePeekReset}
+                onDelete={handleConfusableDelete}
                 onPairUpdated={handleConfusablePairUpdated}
               />
             </div>
@@ -777,6 +744,7 @@ export default function Dashboard() {
             <PageGroupFilter
               selectedIds={statsGroupFilterIds}
               onChange={setStatsGroupFilterIds}
+              category={["memory_card", "word"]}
             />
           </div>
           <div className="grid gap-4 lg:grid-cols-2">

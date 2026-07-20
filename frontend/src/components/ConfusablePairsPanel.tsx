@@ -1,29 +1,80 @@
 import { useCallback, useEffect, useState } from "react";
-import { confusablePairApi } from "../api";
+import { aiApi, confusablePairApi } from "../api";
 import {
   DeleteIcon,
   IconButton,
   JoinPlanIcon,
   LeavePlanIcon,
+  SparkleIcon,
 } from "./ItemIcons";
 import SearchBox from "./SearchBox";
 import { useGroups } from "../context/GroupContext";
 import type { ConfusablePair } from "../types";
 import { getPlanCardStatusMeta } from "../utils/reviewSchedule";
 
+function GenerateExampleButton({
+  onClick,
+  disabled,
+  generating,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  generating?: boolean;
+}) {
+  return (
+    <div className="group absolute right-2 top-2 z-10">
+      <button
+        type="button"
+        title="生成例句"
+        onClick={onClick}
+        disabled={disabled || generating}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-amber-50 hover:text-amber-500 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-500 dark:hover:bg-amber-950/40 dark:hover:text-amber-300"
+      >
+        {generating ? (
+          <span className="text-xs font-medium">…</span>
+        ) : (
+          <SparkleIcon />
+        )}
+      </button>
+      <span className="pointer-events-none absolute right-0 top-full z-20 mt-1 scale-95 whitespace-nowrap rounded-md bg-slate-800 px-2 py-1 text-[11px] text-white opacity-0 shadow transition group-hover:scale-100 group-hover:opacity-100 dark:bg-slate-700">
+        生成例句
+      </span>
+    </div>
+  );
+}
+
 function PairSide({
   word,
   phonetic,
   pos,
   meaning,
+  exampleEn,
+  exampleZh,
+  generatingExample,
+  generateExampleError,
+  onGenerateExample,
 }: {
   word: string;
   phonetic: string;
   pos: string;
   meaning: string;
+  exampleEn: string;
+  exampleZh: string;
+  generatingExample: boolean;
+  generateExampleError: string;
+  onGenerateExample: () => void;
 }) {
+  const hasExample = Boolean(exampleEn.trim() || exampleZh.trim());
+
   return (
-    <div className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+    <div className="relative min-w-0 flex-1 rounded-xl border border-slate-200 bg-white p-4 pt-8 dark:border-slate-700 dark:bg-slate-900">
+      {!hasExample && (
+        <GenerateExampleButton
+          onClick={onGenerateExample}
+          generating={generatingExample}
+        />
+      )}
+
       <p className="text-lg font-semibold text-slate-800 dark:text-slate-100">{word}</p>
       {phonetic && (
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{phonetic}</p>
@@ -36,6 +87,25 @@ function PairSide({
           {meaning}
         </p>
       )}
+
+      {hasExample && (
+        <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+          {exampleEn.trim() && (
+            <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+              {exampleEn}
+            </p>
+          )}
+          {exampleZh.trim() && (
+            <p className="mt-1 text-xs leading-relaxed text-slate-400 dark:text-slate-500">
+              {exampleZh}
+            </p>
+          )}
+        </div>
+      )}
+
+      {!hasExample && generateExampleError && (
+        <p className="mt-3 text-xs text-red-500">{generateExampleError}</p>
+      )}
     </div>
   );
 }
@@ -47,6 +117,8 @@ export default function ConfusablePairsPanel() {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [generatingKey, setGeneratingKey] = useState<string | null>(null);
+  const [generateErrors, setGenerateErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -123,6 +195,46 @@ export default function ConfusablePairsPanel() {
       }
     } finally {
       setBulkLoading(false);
+    }
+  };
+
+  const handleGenerateExample = async (pair: ConfusablePair, side: "a" | "b") => {
+    const key = `${pair.id}_${side}`;
+    const exampleEn = side === "a" ? pair.example_a : pair.example_b;
+    const exampleZh =
+      side === "a" ? pair.example_a_translation : pair.example_b_translation;
+    if (exampleEn.trim() || exampleZh.trim()) {
+      return;
+    }
+
+    setGeneratingKey(key);
+    setGenerateErrors((prev) => ({ ...prev, [key]: "" }));
+    try {
+      const res = await aiApi.generateWordExample({
+        word: side === "a" ? pair.word_a : pair.word_b,
+        meaning: side === "a" ? pair.meaning_a : pair.meaning_b,
+        pos: side === "a" ? pair.pos_a : pair.pos_b,
+        phonetic: side === "a" ? pair.phonetic_a : pair.phonetic_b,
+        existing_examples: [],
+      });
+      const updated = await confusablePairApi.updateExample(pair.id, {
+        side,
+        example: res.data.en,
+        example_translation: res.data.zh,
+      });
+      setPairs((prev) =>
+        prev.map((item) => (item.id === pair.id ? updated.data : item))
+      );
+    } catch (err: unknown) {
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail ?? "生成例句失败";
+      setGenerateErrors((prev) => ({
+        ...prev,
+        [key]: typeof detail === "string" ? detail : "生成例句失败",
+      }));
+    } finally {
+      setGeneratingKey(null);
     }
   };
 
@@ -206,6 +318,11 @@ export default function ConfusablePairsPanel() {
                       phonetic={pair.phonetic_a}
                       pos={pair.pos_a}
                       meaning={pair.meaning_a}
+                      exampleEn={pair.example_a}
+                      exampleZh={pair.example_a_translation}
+                      generatingExample={generatingKey === `${pair.id}_a`}
+                      generateExampleError={generateErrors[`${pair.id}_a`] ?? ""}
+                      onGenerateExample={() => void handleGenerateExample(pair, "a")}
                     />
                     <div className="flex shrink-0 items-center justify-center px-1 text-slate-300 dark:text-slate-600">
                       ↔
@@ -215,6 +332,11 @@ export default function ConfusablePairsPanel() {
                       phonetic={pair.phonetic_b}
                       pos={pair.pos_b}
                       meaning={pair.meaning_b}
+                      exampleEn={pair.example_b}
+                      exampleZh={pair.example_b_translation}
+                      generatingExample={generatingKey === `${pair.id}_b`}
+                      generateExampleError={generateErrors[`${pair.id}_b`] ?? ""}
+                      onGenerateExample={() => void handleGenerateExample(pair, "b")}
                     />
                   </div>
 

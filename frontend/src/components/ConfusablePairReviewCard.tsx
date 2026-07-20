@@ -1,22 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { aiApi, confusablePairApi } from "../api";
-import type { ReviewConfusablePair } from "../types";
+import type { ConfusableDiffAnalysis, ReviewConfusablePair } from "../types";
 import { useGroups } from "../context/GroupContext";
 import {
   playWordPronunciation,
   stopWordPronunciation,
 } from "../utils/wordPronunciation";
-import {
-  playBackspaceSound,
-  playEnterSound,
-  playSpaceConfirmSound,
-  playTypewriterSound,
-  warmUpKeyboardSounds,
-} from "../utils/wordReviewSounds";
+import { warmUpKeyboardSounds } from "../utils/wordReviewSounds";
 import { CardKindBadge } from "./CardKindBadge";
+import ConfusableDiffAnalysisPanel, {
+  isValidDiffAnalysis,
+} from "./ConfusableDiffAnalysisPanel";
 import ReviewExampleSentence from "./ReviewExampleSentence";
-import { SparkleIcon } from "./ItemIcons";
-import { splitSentenceForCloze } from "../utils/wordExampleCloze";
+import { SparkleIcon, DeleteIcon, IconButton } from "./ItemIcons";
 
 interface ConfusablePairReviewCardProps {
   pair: ReviewConfusablePair;
@@ -24,64 +20,14 @@ interface ConfusablePairReviewCardProps {
   totalCount: number;
   onReviewed: (id: number) => void;
   onSkip: (id: number) => void;
-  onDefer: (id: number) => void;
-  onPeekAnswer: (id: number) => void;
+  onDelete: (id: number) => void;
   onPairUpdated?: (pair: ReviewConfusablePair) => void;
 }
 
-const MIN_LINE_CHARS = 6;
 const FADE_MS = 280;
 
 function isConfirmKey(key: string): boolean {
   return key === "Enter" || key === " ";
-}
-
-interface UnderlineInputProps {
-  value: string;
-  onChange: (value: string) => void;
-  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
-  hasError: boolean;
-  inputRef: React.RefObject<HTMLInputElement>;
-  placeholder?: string;
-}
-
-function UnderlineInput({
-  value,
-  onChange,
-  onKeyDown,
-  hasError,
-  inputRef,
-  placeholder = "输入单词",
-}: UnderlineInputProps) {
-  const mirrorText =
-    value.length > 0 ? value : "\u00A0".repeat(MIN_LINE_CHARS);
-
-  return (
-    <div className="flex w-full justify-center px-2">
-      <div className="inline-grid max-w-full [&>*]:col-start-1 [&>*]:row-start-1">
-        <span
-          aria-hidden
-          className="invisible whitespace-pre px-1 text-xl font-medium tracking-wide"
-        >
-          {mirrorText}
-        </span>
-        <input
-          ref={inputRef}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={placeholder}
-          autoComplete="off"
-          spellCheck={false}
-          className={`w-full min-w-0 border-0 border-b-2 bg-transparent px-1 py-2 text-center text-xl font-medium tracking-wide outline-none transition-colors placeholder:text-sm placeholder:font-normal placeholder:text-slate-300 ${
-            hasError
-              ? "border-red-400 text-red-600 focus:border-red-500"
-              : "border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-100 focus:border-rose-500 dark:focus:border-rose-400"
-          }`}
-        />
-      </div>
-    </div>
-  );
 }
 
 function GenerateExampleButton({
@@ -116,51 +62,36 @@ function GenerateExampleButton({
 }
 
 function SidePanel({
+  label,
   meaning,
   phonetic,
   targetWord,
   exampleEn,
   exampleZh,
-  exampleConfirmed,
-  input,
-  hasError,
-  revealed,
-  peeked,
-  isCorrect,
+  accentClass,
   generatingExample,
   generateExampleError,
-  inputRef,
-  onChange,
-  onKeyDown,
   onGenerateExample,
   actionsDisabled,
 }: {
+  label: string;
   meaning: string;
   phonetic: string;
   targetWord: string;
   exampleEn: string;
   exampleZh: string;
-  exampleConfirmed: boolean;
-  input: string;
-  hasError: boolean;
-  revealed: boolean;
-  peeked: boolean;
-  isCorrect: boolean;
+  accentClass: string;
   generatingExample: boolean;
   generateExampleError: string;
-  inputRef: React.RefObject<HTMLInputElement>;
-  onChange: (value: string) => void;
-  onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
   onGenerateExample: () => void;
   actionsDisabled: boolean;
 }) {
   const hasExample = Boolean(exampleEn.trim() || exampleZh.trim());
-  const exampleCloze = exampleEn.trim()
-    ? splitSentenceForCloze(exampleEn, targetWord)
-    : null;
 
   return (
-    <div className="relative flex min-w-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white/60 p-4 pt-8 dark:border-slate-700 dark:bg-slate-900/40">
+    <div
+      className={`relative flex min-w-0 flex-1 flex-col rounded-xl border p-4 pt-8 ${accentClass}`}
+    >
       {!hasExample && (
         <GenerateExampleButton
           onClick={onGenerateExample}
@@ -169,75 +100,33 @@ function SidePanel({
         />
       )}
 
+      <p className="mb-1 text-center text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        {label}
+      </p>
       <p className="mb-4 text-center text-lg font-semibold leading-relaxed text-slate-800 dark:text-slate-100">
         {meaning}
       </p>
 
+      <div className="mb-4 text-center">
+        <p className="text-3xl font-semibold tracking-wide text-slate-900 dark:text-slate-50">
+          {targetWord}
+        </p>
+        {phonetic && (
+          <p className="mt-2 text-base text-slate-500 dark:text-slate-400">{phonetic}</p>
+        )}
+      </div>
+
       {hasExample && (
-        exampleCloze ? (
-          <ReviewExampleSentence
-            example={{ en: exampleEn, zh: exampleZh }}
-            word={targetWord}
-            showFull={exampleConfirmed || isCorrect}
-            className="mb-4 text-center"
-          />
-        ) : (
-          <div className="mb-4 text-center">
-            {exampleEn.trim() && (
-              <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-                {exampleEn}
-              </p>
-            )}
-            {exampleZh.trim() && (
-              <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                {exampleZh}
-              </p>
-            )}
-          </div>
-        )
+        <ReviewExampleSentence
+          example={{ en: exampleEn, zh: exampleZh }}
+          word={targetWord}
+          showFull
+          className="text-center"
+        />
       )}
 
       {!hasExample && generateExampleError && (
-        <p className="mb-3 text-center text-xs text-red-500">{generateExampleError}</p>
-      )}
-
-      {revealed && !isCorrect && (
-        <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-center text-sm font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-          {targetWord}
-          {phonetic && (
-            <span className="ml-2 font-normal text-amber-700 dark:text-amber-300">
-              {phonetic}
-            </span>
-          )}
-        </p>
-      )}
-
-      {isCorrect ? (
-        <div className="text-center">
-          <p className="mb-1 text-sm font-medium text-green-700">正确</p>
-          <p className="text-2xl font-semibold text-green-800">{targetWord}</p>
-          {phonetic && (
-            <p className="mt-1 text-sm text-green-700">{phonetic}</p>
-          )}
-        </div>
-      ) : (
-        <div>
-          <UnderlineInput
-            value={input}
-            onChange={onChange}
-            onKeyDown={onKeyDown}
-            hasError={hasError}
-            inputRef={inputRef}
-            placeholder={
-              peeked
-                ? "对照答案输入，回车确认"
-                : "根据释义输入单词"
-            }
-          />
-          {hasError && (
-            <p className="mt-3 text-center text-xs text-red-600">拼写不正确</p>
-          )}
-        </div>
+        <p className="mt-3 text-center text-xs text-red-500">{generateExampleError}</p>
       )}
     </div>
   );
@@ -249,20 +138,12 @@ export default function ConfusablePairReviewCard({
   totalCount,
   onReviewed,
   onSkip,
-  onDefer,
-  onPeekAnswer,
+  onDelete,
   onPairUpdated,
 }: ConfusablePairReviewCardProps) {
   const { totalStagesForGroupId } = useGroups();
   const totalStages = totalStagesForGroupId(null);
 
-  const [inputA, setInputA] = useState("");
-  const [inputB, setInputB] = useState("");
-  const [errorA, setErrorA] = useState(false);
-  const [errorB, setErrorB] = useState(false);
-  const [wrongCount, setWrongCount] = useState(0);
-  const [revealedAnswer, setRevealedAnswer] = useState(false);
-  const [isCorrect, setIsCorrect] = useState(false);
   const [visible, setVisible] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [exampleA, setExampleA] = useState({
@@ -277,30 +158,26 @@ export default function ConfusablePairReviewCard({
   const [generatingExampleB, setGeneratingExampleB] = useState(false);
   const [generateExampleErrorA, setGenerateExampleErrorA] = useState("");
   const [generateExampleErrorB, setGenerateExampleErrorB] = useState("");
-  const [confirmedA, setConfirmedA] = useState(false);
-  const [confirmedB, setConfirmedB] = useState(false);
+  const [diffAnalysis, setDiffAnalysis] = useState<ConfusableDiffAnalysis | null>(
+    isValidDiffAnalysis(pair.diff_analysis) ? pair.diff_analysis : null
+  );
+  const [showDiffAnalysis, setShowDiffAnalysis] = useState(
+    isValidDiffAnalysis(pair.diff_analysis)
+  );
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [diffError, setDiffError] = useState("");
 
-  const inputARef = useRef<HTMLInputElement>(null);
-  const inputBRef = useRef<HTMLInputElement>(null);
-  const formRef = useRef<HTMLFormElement>(null);
-  const nextButtonRef = useRef<HTMLButtonElement>(null);
+  const completeButtonRef = useRef<HTMLButtonElement>(null);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const peekResetDoneRef = useRef(false);
 
   const resetCardState = () => {
-    setInputA("");
-    setInputB("");
-    setErrorA(false);
-    setErrorB(false);
-    setWrongCount(0);
-    setIsCorrect(false);
-    setRevealedAnswer(false);
     setExampleA({ en: pair.example_a, zh: pair.example_a_translation });
     setExampleB({ en: pair.example_b, zh: pair.example_b_translation });
     setGenerateExampleErrorA("");
     setGenerateExampleErrorB("");
-    setConfirmedA(false);
-    setConfirmedB(false);
+    setDiffAnalysis(isValidDiffAnalysis(pair.diff_analysis) ? pair.diff_analysis : null);
+    setShowDiffAnalysis(isValidDiffAnalysis(pair.diff_analysis));
+    setDiffError("");
   };
 
   const handleGenerateExample = useCallback(
@@ -362,6 +239,31 @@ export default function ConfusablePairReviewCard({
     [exampleA, exampleB, onPairUpdated, pair]
   );
 
+  const handleDiffAnalysis = useCallback(async () => {
+    if (isValidDiffAnalysis(diffAnalysis)) {
+      setShowDiffAnalysis(true);
+      return;
+    }
+    setDiffLoading(true);
+    setDiffError("");
+    try {
+      const res = await confusablePairApi.diffAnalysis(pair.id);
+      setDiffAnalysis(res.data.analysis);
+      setShowDiffAnalysis(true);
+      onPairUpdated?.({
+        ...pair,
+        diff_analysis: res.data.analysis,
+      });
+    } catch (err: unknown) {
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail ?? "AI 分析失败";
+      setDiffError(typeof detail === "string" ? detail : "AI 分析失败");
+    } finally {
+      setDiffLoading(false);
+    }
+  }, [diffAnalysis, onPairUpdated, pair]);
+
   const clearFadeTimer = () => {
     if (fadeTimerRef.current) {
       clearTimeout(fadeTimerRef.current);
@@ -380,20 +282,11 @@ export default function ConfusablePairReviewCard({
 
   useEffect(() => {
     resetCardState();
-    peekResetDoneRef.current = false;
     setVisible(false);
     stopWordPronunciation();
     fadeIn();
     return clearFadeTimer;
   }, [pair.id]);
-
-  const peeked = revealedAnswer || wrongCount >= 3;
-
-  useEffect(() => {
-    if (!peeked || peekResetDoneRef.current || isTransitioning) return;
-    peekResetDoneRef.current = true;
-    onPeekAnswer(pair.id);
-  }, [peeked, pair.id, onPeekAnswer, isTransitioning]);
 
   const transitionToNext = (action: () => void) => {
     if (isTransitioning) return;
@@ -403,140 +296,55 @@ export default function ConfusablePairReviewCard({
     fadeTimerRef.current = setTimeout(() => {
       action();
       resetCardState();
-      peekResetDoneRef.current = false;
       stopWordPronunciation();
       fadeIn();
       fadeTimerRef.current = null;
     }, FADE_MS);
   };
 
-  const advanceAfterCorrect = useCallback(
-    (_key: string) => {
-      if (isTransitioning || !isCorrect) return;
-      stopWordPronunciation();
-      if (peeked) {
-        transitionToNext(() => onDefer(pair.id));
-      } else {
-        transitionToNext(() => onReviewed(pair.id));
-      }
-    },
-    [isCorrect, isTransitioning, peeked, pair.id, onDefer, onReviewed]
-  );
-
-  useEffect(() => {
-    if (isCorrect) void warmUpKeyboardSounds();
-  }, [isCorrect]);
-
-  useEffect(() => {
+  const handleComplete = useCallback(() => {
     if (isTransitioning) return;
-    if (isCorrect) {
-      nextButtonRef.current?.focus();
-    } else {
-      inputARef.current?.focus();
-    }
-  }, [pair.id, isCorrect, isTransitioning, visible]);
-
-  useEffect(() => {
-    if (!isCorrect || isTransitioning) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!isConfirmKey(e.key) || e.repeat) return;
-      e.preventDefault();
-      advanceAfterCorrect(e.key);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isCorrect, isTransitioning, advanceAfterCorrect]);
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.altKey) return;
-      if (e.key === ";" || e.key === ":") {
-        e.preventDefault();
-        if (!isCorrect && !isTransitioning) setRevealedAnswer(true);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isCorrect, isTransitioning]);
-
-  const handleInputKeyDown = (
-    e: React.KeyboardEvent<HTMLInputElement>,
-    side: "a" | "b"
-  ) => {
-    if (isCorrect || isTransitioning) return;
-
-    if (isConfirmKey(e.key)) {
-      if (e.key === " ") {
-        e.preventDefault();
-        const current = side === "a" ? inputA : inputB;
-        if (!current.trim()) return;
-        void playSpaceConfirmSound();
-        formRef.current?.requestSubmit();
-        return;
-      }
-      e.preventDefault();
-      void playEnterSound();
-      if (side === "a") {
-        inputBRef.current?.focus();
-        return;
-      }
-      formRef.current?.requestSubmit();
-      return;
-    }
-
-    if (e.key === "Backspace") {
-      if (!e.repeat) void playBackspaceSound();
-      return;
-    }
-
-    if (
-      e.key.length === 1 &&
-      !e.ctrlKey &&
-      !e.metaKey &&
-      !e.altKey &&
-      !e.nativeEvent.isComposing
-    ) {
-      void playTypewriterSound();
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (isCorrect) return;
-
-    const answerA = inputA.trim();
-    const answerB = inputB.trim();
-    if (!answerA || !answerB) return;
-
-    const okA = answerA.toLowerCase() === pair.word_a.trim().toLowerCase();
-    const okB = answerB.toLowerCase() === pair.word_b.trim().toLowerCase();
-
-    if (okA && okB) {
-      setIsCorrect(true);
-      setErrorA(false);
-      setErrorB(false);
-      setConfirmedA(true);
-      setConfirmedB(true);
-      return;
-    }
-
-    if (okA) setConfirmedA(true);
-    if (okB) setConfirmedB(true);
-    setErrorA(!okA);
-    setErrorB(!okB);
-    if (!peeked) {
-      setWrongCount((count) => count + 1);
-    }
-    if (!okA) setInputA("");
-    if (!okB) setInputB("");
-    if (!okA) inputARef.current?.focus();
-    else inputBRef.current?.focus();
-  };
+    stopWordPronunciation();
+    transitionToNext(() => onReviewed(pair.id));
+  }, [isTransitioning, onReviewed, pair.id]);
 
   const handleSkip = () => {
     stopWordPronunciation();
     transitionToNext(() => onSkip(pair.id));
   };
+
+  const handleDelete = () => {
+    if (isTransitioning) return;
+    if (
+      !confirm(
+        `确定删除易混词对「${pair.word_a} ↔ ${pair.word_b}」？删除后无法恢复。`
+      )
+    ) {
+      return;
+    }
+    stopWordPronunciation();
+    onDelete(pair.id);
+  };
+
+  useEffect(() => {
+    void warmUpKeyboardSounds();
+  }, [pair.id]);
+
+  useEffect(() => {
+    if (isTransitioning) return;
+    completeButtonRef.current?.focus();
+  }, [pair.id, isTransitioning, visible]);
+
+  useEffect(() => {
+    if (isTransitioning) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isConfirmKey(e.key) || e.repeat) return;
+      e.preventDefault();
+      handleComplete();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isTransitioning, handleComplete]);
 
   const progressPercent =
     totalCount > 0 ? Math.min(100, ((currentIndex + 1) / totalCount) * 100) : 0;
@@ -579,7 +387,7 @@ export default function ConfusablePairReviewCard({
         <div className="flex shrink-0 items-center justify-between gap-3 px-2 py-2 sm:px-4">
           <div>
             <CardKindBadge kind="confusable_pair" />
-            <span className="ml-2 inline-block rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs text-slate-500 dark:text-slate-400">
+            <span className="ml-2 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
               无分组 · 艾宾浩斯
             </span>
           </div>
@@ -594,21 +402,26 @@ export default function ConfusablePairReviewCard({
             <button
               type="button"
               onClick={() => void playWordPronunciation(pair.word_b)}
-              className="rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+              disabled={isTransitioning}
+              className="rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-200 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
             >
               读 {pair.word_b}
             </button>
+            <IconButton
+              title="删除易混词对"
+              onClick={handleDelete}
+              disabled={isTransitioning}
+              className="h-8 w-8 text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+            >
+              <DeleteIcon />
+            </IconButton>
           </div>
         </div>
 
-        <form
-          ref={formRef}
-          onSubmit={handleSubmit}
-          className="flex min-h-0 flex-1 flex-col justify-start"
-        >
+        <div className="flex min-h-0 flex-1 flex-col justify-start">
           <div className="flex flex-col px-4 pb-4 pt-2 sm:px-6">
             <div className="mb-4 flex flex-wrap items-center justify-center gap-2 text-xs">
-              <span className="rounded bg-rose-50 px-2 py-0.5 text-rose-700">
+              <span className="rounded bg-rose-50 px-2 py-0.5 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
                 第 {pair.stage_index + 1}/{totalStages} 轮
               </span>
               <span className="text-slate-400 dark:text-slate-500">
@@ -621,28 +434,21 @@ export default function ConfusablePairReviewCard({
               )}
             </div>
 
+            <p className="mb-4 text-center text-sm text-slate-500 dark:text-slate-400">
+              对照两侧释义、拼写与例句，看清差异后点击「我已记住」
+            </p>
+
             <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-stretch">
               <SidePanel
+                label="单词 A"
                 meaning={pair.meaning_a}
                 phonetic={pair.phonetic_a}
                 targetWord={pair.word_a}
                 exampleEn={exampleA.en}
                 exampleZh={exampleA.zh}
-                exampleConfirmed={confirmedA}
-                input={inputA}
-                hasError={errorA}
-                revealed={wrongCount >= 3 || revealedAnswer}
-                peeked={peeked}
-                isCorrect={isCorrect}
+                accentClass="border-rose-200 bg-rose-50/50 dark:border-rose-900/50 dark:bg-rose-950/20"
                 generatingExample={generatingExampleA}
                 generateExampleError={generateExampleErrorA}
-                inputRef={inputARef}
-                onChange={(value) => {
-                  setInputA(value);
-                  if (errorA) setErrorA(false);
-                  if (confirmedA) setConfirmedA(false);
-                }}
-                onKeyDown={(e) => handleInputKeyDown(e, "a")}
                 onGenerateExample={() => void handleGenerateExample("a")}
                 actionsDisabled={isTransitioning}
               />
@@ -650,52 +456,55 @@ export default function ConfusablePairReviewCard({
                 ↔
               </div>
               <SidePanel
+                label="单词 B"
                 meaning={pair.meaning_b}
                 phonetic={pair.phonetic_b}
                 targetWord={pair.word_b}
                 exampleEn={exampleB.en}
                 exampleZh={exampleB.zh}
-                exampleConfirmed={confirmedB}
-                input={inputB}
-                hasError={errorB}
-                revealed={wrongCount >= 3 || revealedAnswer}
-                peeked={peeked}
-                isCorrect={isCorrect}
+                accentClass="border-violet-200 bg-violet-50/50 dark:border-violet-900/50 dark:bg-violet-950/20"
                 generatingExample={generatingExampleB}
                 generateExampleError={generateExampleErrorB}
-                inputRef={inputBRef}
-                onChange={(value) => {
-                  setInputB(value);
-                  if (errorB) setErrorB(false);
-                  if (confirmedB) setConfirmedB(false);
-                }}
-                onKeyDown={(e) => handleInputKeyDown(e, "b")}
                 onGenerateExample={() => void handleGenerateExample("b")}
                 actionsDisabled={isTransitioning}
               />
             </div>
 
-            <div className="flex justify-center gap-3">
-              {isCorrect ? (
-                <button
-                  ref={nextButtonRef}
-                  type="button"
-                  onClick={() => advanceAfterCorrect("Enter")}
-                  disabled={isTransitioning}
-                  className="min-w-[8rem] rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
-                >
-                  下一个
-                </button>
+            <div className="mb-4">
+              {showDiffAnalysis && isValidDiffAnalysis(diffAnalysis) ? (
+                <ConfusableDiffAnalysisPanel
+                  analysis={diffAnalysis}
+                  wordA={pair.word_a}
+                  wordB={pair.word_b}
+                />
               ) : (
-                <button
-                  type="submit"
-                  disabled={!inputA.trim() || !inputB.trim() || isTransitioning}
-                  onClick={() => void playEnterSound()}
-                  className="min-w-[8rem] rounded-lg bg-green-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-green-700 disabled:opacity-50"
-                >
-                  确认
-                </button>
+                <div className="flex flex-col items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleDiffAnalysis()}
+                    disabled={diffLoading || isTransitioning}
+                    className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-indigo-200 dark:hover:bg-indigo-950/50"
+                  >
+                    <SparkleIcon />
+                    {diffLoading ? "AI 分析中..." : "AI 分析差异"}
+                  </button>
+                  {diffError && (
+                    <p className="text-center text-xs text-red-500">{diffError}</p>
+                  )}
+                </div>
               )}
+            </div>
+
+            <div className="flex justify-center gap-3">
+              <button
+                ref={completeButtonRef}
+                type="button"
+                onClick={handleComplete}
+                disabled={isTransitioning}
+                className="min-w-[8rem] rounded-lg bg-green-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-green-700 disabled:opacity-50"
+              >
+                我已记住
+              </button>
               <button
                 type="button"
                 onClick={handleSkip}
@@ -706,11 +515,11 @@ export default function ConfusablePairReviewCard({
               </button>
             </div>
           </div>
-        </form>
+        </div>
       </div>
 
       <div className="mt-auto shrink-0 px-4 pb-2 pt-1 text-center text-xs text-slate-400 dark:text-slate-500">
-        两侧都拼写正确才算完成 · Ctrl + ; 查看答案
+        回车或空格 · 我已记住
       </div>
     </div>
   );

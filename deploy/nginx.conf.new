@@ -1,0 +1,30 @@
+# 忆刻公网入口 Nginx（已由 docker-compose gateway 服务加载）
+# 实际配置文件: deploy/nginx-yike.conf
+#
+# 架构:
+#   公网 :80  -> ebbinghaus-gateway -> frontend:80
+#   本机 :10001 -> frontend（仅 127.0.0.1，供调试）
+#
+# 已停用 go-fastdfs-nginx，不再反代 go-fastdfs。
+# 如需恢复 HTTPS，可在此 gateway 上追加 443 + certbot。
+
+upstream yike-app {
+    server frontend:80;
+}
+
+server {
+    listen 80 default_server;
+    server_name my-yike.online www.my-yike.online _;
+
+    client_max_body_size 20m;
+
+    location / {
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_pass http://yike-app;
+    }
+}

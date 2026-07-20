@@ -53,4 +53,4 @@ echo "==> 部署完成，容器状态:"
 docker compose ps
 
 echo
-echo "==> 访问地址: http://localhost:10001"
+echo "==> 访问地址: http://0.0.0.0:80 (公网) / http://0.0.0.0:10001"

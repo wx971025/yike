@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dictionaryApi, wordApi, type WordPayload } from "../api";
 import ConfusablePairsPanel from "../components/ConfusablePairsPanel";
 import ConfusablePairCreateModal from "../components/ConfusablePairCreateModal";
+import GroupTag from "../components/GroupTag";
 import BulkGroupEditModal from "../components/BulkGroupEditModal";
 import ItemActionsMenu from "../components/ItemActionsMenu";
 import PageGroupFilter from "../components/PageGroupFilter";
@@ -23,7 +24,9 @@ import SortableHeader from "../components/SortableHeader";
 import { useGroups } from "../context/GroupContext";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { getReviewStageOptions, type Word } from "../types";
-import { UNGROUPED_GROUP_ID, isGroupFilterActive } from "../utils/groupFilter";
+import { filterGroupsByCategory } from "../utils/groupCategory";
+import { ensureGroupsBeforeCreate } from "../utils/groupRequired";
+import { isGroupFilterActive } from "../utils/groupFilter";
 import { getNextReviewDate, getPlanCardStatusMeta } from "../utils/reviewSchedule";
 import {
   sortByCreatedAt,
@@ -51,7 +54,7 @@ const emptyForm: WordPayload = {
   example: "",
   example_translation: "",
   examples: [{ en: "", zh: "" }],
-  group_id: null,
+  group_id: 0,
   stage_index: 0,
 };
 
@@ -68,6 +71,7 @@ function BatchWordTextarea({
   highlightedMissing: string[];
   disabled?: boolean;
 }) {
+  const mirrorEl = useRef<HTMLDivElement | null>(null);
   const missingSet = useMemo(
     () => new Set(highlightedMissing.map((word) => word.toLowerCase())),
     [highlightedMissing]
@@ -75,37 +79,48 @@ function BatchWordTextarea({
   const lines = value.split(/\r?\n/);
   const hasHighlights = highlightedMissing.length > 0;
 
+  const syncScroll = (target: HTMLTextAreaElement) => {
+    if (mirrorEl.current) {
+      mirrorEl.current.scrollTop = target.scrollTop;
+    }
+  };
+
   return (
-    <div className="relative mb-3">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg border border-transparent px-3 py-2 font-mono text-sm leading-6 whitespace-pre-wrap break-words"
-      >
-        {lines.map((line, index) => {
-          const trimmed = line.trim();
-          const isMissing = Boolean(trimmed) && missingSet.has(trimmed.toLowerCase());
-          return (
-            <div
-              key={index}
-              className={
-                isMissing
-                  ? "text-red-600 dark:text-red-400"
-                  : "text-slate-800 dark:text-slate-100"
-              }
-            >
-              {line || "\u00a0"}
-            </div>
-          );
-        })}
-      </div>
+    <div className="relative mb-3 overflow-hidden rounded-lg">
+      {hasHighlights && (
+        <div
+          ref={mirrorEl}
+          aria-hidden
+          className="pointer-events-none absolute inset-0 overflow-auto rounded-lg border border-transparent px-3 py-2 font-mono text-sm leading-6 whitespace-pre-wrap break-words [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {lines.map((line, index) => {
+            const trimmed = line.trim();
+            const isMissing = Boolean(trimmed) && missingSet.has(trimmed.toLowerCase());
+            return (
+              <div
+                key={index}
+                className={
+                  isMissing
+                    ? "text-red-600 dark:text-red-400"
+                    : "text-slate-800 dark:text-slate-100"
+                }
+              >
+                {line || "\u00a0"}
+              </div>
+            );
+          })}
+        </div>
+      )}
       <textarea
-        className={`relative w-full rounded-lg border px-3 py-2 font-mono text-sm leading-6 focus:border-blue-500 focus:outline-none disabled:opacity-60 dark:focus:border-blue-400 ${
+        className={`relative block w-full resize-none rounded-lg border px-3 py-2 font-mono text-sm leading-6 focus:border-blue-500 focus:outline-none disabled:opacity-60 dark:focus:border-blue-400 ${
           hasHighlights
             ? "border-red-300 bg-transparent text-transparent caret-slate-800 selection:bg-blue-200/60 dark:border-red-500/60 dark:caret-slate-100 dark:selection:bg-blue-500/30"
             : "border-slate-300 bg-white text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
         }`}
+        style={hasHighlights ? { WebkitTextFillColor: "transparent" } : undefined}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onScroll={(e) => syncScroll(e.currentTarget)}
         rows={8}
         placeholder={"apple\nbanana\norange"}
         disabled={disabled}
@@ -178,6 +193,10 @@ function WordExamplesDisplay({
 
 export default function WordsPage() {
   const { groups, memoryModeForGroupId, totalStagesForGroupId } = useGroups();
+  const wordGroups = useMemo(
+    () => filterGroupsByCategory(groups, "word"),
+    [groups]
+  );
   const [pageTab, setPageTab] = useState<"words" | "confusable">("words");
   const [createConfusableOpen, setCreateConfusableOpen] = useState(false);
   const [groupFilterIds, setGroupFilterIds] = useState<Set<number>>(new Set());
@@ -218,22 +237,12 @@ export default function WordsPage() {
   const [batchWordsToAdd, setBatchWordsToAdd] = useState<string[]>([]);
   const [batchHighlightedMissing, setBatchHighlightedMissing] = useState<string[]>([]);
 
-  const defaultBatchGroupId = useMemo(() => {
-    const realIds = Array.from(groupFilterIds).filter(
-      (id) => id !== UNGROUPED_GROUP_ID
-    );
-    return realIds.length === 1 ? realIds[0] : null;
-  }, [groupFilterIds]);
-
   const batchMemoryMode = memoryModeForGroupId(batchGroupId);
   const batchStageOptions = useMemo(
     () => getReviewStageOptions(batchMemoryMode),
     [batchMemoryMode]
   );
   const batchTotalStages = totalStagesForGroupId(batchGroupId);
-
-  const groupName = (id: number | null) =>
-    id == null ? "无分组" : groups.find((g) => g.id === id)?.name ?? "未知分组";
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -351,11 +360,18 @@ export default function WordsPage() {
 
   const handleEditGroupSelected = () => {
     if (selectedCount === 0) return;
+    if (wordGroups.length === 0) {
+      const check = ensureGroupsBeforeCreate(groups, "word");
+      if (!check.ok) {
+        window.alert(check.message);
+      }
+      return;
+    }
     setBulkGroupError("");
     setBulkGroupModalOpen(true);
   };
 
-  const handleConfirmBulkGroup = async (groupId: number | null) => {
+  const handleConfirmBulkGroup = async (groupId: number) => {
     const targets = sortedWords.filter((word) => selectedIds.has(word.id));
     if (targets.length === 0) return;
 
@@ -404,9 +420,14 @@ export default function WordsPage() {
   };
 
   const openAddWords = () => {
+    const check = ensureGroupsBeforeCreate(groups, "word", groupFilterIds);
+    if (!check.ok) {
+      window.alert(check.message);
+      return;
+    }
     setBatchText("");
     setBatchError("");
-    setBatchGroupId(defaultBatchGroupId);
+    setBatchGroupId(check.groupId);
     setBatchJoinPlan(true);
     setBatchStageIndex(0);
     setBatchMissingConfirmOpen(false);
@@ -453,6 +474,10 @@ export default function WordsPage() {
   const addWordsBatch = async (wordsToAdd: string[]) => {
     if (wordsToAdd.length === 0) {
       setBatchError("词典均未收录这些单词，未添加任何内容");
+      return;
+    }
+    if (!batchGroupId) {
+      setBatchError("请选择分组");
       return;
     }
 
@@ -552,7 +577,7 @@ export default function WordsPage() {
       example: w.example,
       example_translation: w.example_translation,
       examples: wordExamplesFromWord(w),
-      group_id: w.group_id,
+      group_id: w.group_id ?? wordGroups[0]?.id ?? 0,
     });
     setModalOpen(true);
   };
@@ -561,6 +586,10 @@ export default function WordsPage() {
     e.preventDefault();
     if (editingId == null) return;
     setFormError("");
+    if (!form.group_id) {
+      setFormError("请选择分组");
+      return;
+    }
     try {
       const examples = sanitizeWordExamples(form.examples);
       await wordApi.update(editingId, {
@@ -654,6 +683,7 @@ export default function WordsPage() {
           <div className="flex shrink-0 items-center gap-3">
             <button
               type="button"
+              data-tour="add-word"
               onClick={openAddWords}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
             >
@@ -740,6 +770,7 @@ export default function WordsPage() {
               <PageGroupFilter
                 selectedIds={groupFilterIds}
                 onChange={setGroupFilterIds}
+                category="word"
               />
             </div>
           </div>
@@ -820,7 +851,7 @@ export default function WordsPage() {
                         <WordExamplesDisplay word={w} />
                       </td>
                       <td className="px-4 py-3 align-top text-slate-500 dark:text-slate-400">
-                        {groupName(w.group_id)}
+                        <GroupTag groupId={w.group_id} />
                       </td>
                       <td className="px-4 py-3 align-top text-slate-500 dark:text-slate-400">
                         {w.in_plan ? (
@@ -903,7 +934,7 @@ export default function WordsPage() {
       <BulkGroupEditModal
         open={bulkGroupModalOpen}
         selectedCount={selectedCount}
-        groups={groups}
+        groups={wordGroups}
         loading={bulkLoading}
         error={bulkGroupError}
         onClose={() => {
@@ -997,17 +1028,16 @@ export default function WordsPage() {
               分组
             </label>
             <select
+              required
               className="mb-3 w-full rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none"
-              value={batchGroupId ?? ""}
+              value={batchGroupId ?? wordGroups[0]?.id ?? ""}
               onChange={(e) => {
-                const nextGroupId = e.target.value === "" ? null : Number(e.target.value);
-                setBatchGroupId(nextGroupId);
+                setBatchGroupId(Number(e.target.value));
                 setBatchStageIndex(0);
               }}
               disabled={batchSubmitting}
             >
-              <option value="">无分组</option>
-              {groups.map((g) => (
+              {wordGroups.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.name}
                 </option>
@@ -1142,17 +1172,17 @@ export default function WordsPage() {
               分组
             </label>
             <select
+              required
               className="mb-3 w-full rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none"
-              value={form.group_id ?? ""}
+              value={form.group_id || wordGroups[0]?.id || ""}
               onChange={(e) =>
                 setForm({
                   ...form,
-                  group_id: e.target.value === "" ? null : Number(e.target.value),
+                  group_id: Number(e.target.value),
                 })
               }
             >
-              <option value="">无分组</option>
-              {groups.map((g) => (
+              {wordGroups.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.name}
                 </option>

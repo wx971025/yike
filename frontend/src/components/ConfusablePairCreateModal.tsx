@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { confusablePairApi } from "../api";
 
 interface ConfusablePairCreateModalProps {
@@ -21,6 +21,8 @@ export default function ConfusablePairCreateModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+  const wordARef = useRef<HTMLInputElement>(null);
+  const wordBRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -28,12 +30,18 @@ export default function ConfusablePairCreateModal({
     setWordB("");
     setError("");
     setInfo("");
-  }, [open, initialWordA]);
+    requestAnimationFrame(() => {
+      if (lockWordA) {
+        wordBRef.current?.focus();
+      } else {
+        wordARef.current?.focus();
+      }
+    });
+  }, [open, initialWordA, lockWordA]);
 
   if (!open) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submitPair = async () => {
     setError("");
     setInfo("");
     const a = wordA.trim();
@@ -73,6 +81,27 @@ export default function ConfusablePairCreateModal({
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await submitPair();
+  };
+
+  const handleEnterKey = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    field: "a" | "b"
+  ) => {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing || submitting) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (field === "a" && !lockWordA && !wordB.trim()) {
+      wordBRef.current?.focus();
+      return;
+    }
+    if (wordA.trim() && wordB.trim()) {
+      void submitPair();
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4"
@@ -95,8 +124,10 @@ export default function ConfusablePairCreateModal({
               单词 A
             </label>
             <input
+              ref={wordARef}
               value={wordA}
               onChange={(e) => setWordA(e.target.value)}
+              onKeyDown={(e) => handleEnterKey(e, "a")}
               readOnly={lockWordA}
               disabled={submitting}
               placeholder="例如 affect"
@@ -112,13 +143,14 @@ export default function ConfusablePairCreateModal({
               单词 B
             </label>
             <input
+              ref={wordBRef}
               value={wordB}
               onChange={(e) => setWordB(e.target.value)}
+              onKeyDown={(e) => handleEnterKey(e, "b")}
               disabled={submitting}
               placeholder="例如 effect"
               autoComplete="off"
               spellCheck={false}
-              autoFocus={!lockWordA}
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-rose-500 dark:focus:ring-rose-950/40"
             />
           </div>

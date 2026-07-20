@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { itemApi, type ItemPayload } from "../api";
 import BulkGroupEditModal from "../components/BulkGroupEditModal";
+import GroupTag from "../components/GroupTag";
 import ItemActionsMenu from "../components/ItemActionsMenu";
 import PageGroupFilter from "../components/PageGroupFilter";
 import PlanMultiSelectBar, {
@@ -17,7 +18,9 @@ import SortableHeader from "../components/SortableHeader";
 import { useGroups } from "../context/GroupContext";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { getReviewStageOptions, type Item } from "../types";
-import { UNGROUPED_GROUP_ID, isGroupFilterActive } from "../utils/groupFilter";
+import { filterGroupsByCategory } from "../utils/groupCategory";
+import { ensureGroupsBeforeCreate } from "../utils/groupRequired";
+import { isGroupFilterActive } from "../utils/groupFilter";
 import { learnedAtForStage } from "../utils/reviewSchedule";
 import {
   sortByCreatedAt,
@@ -40,12 +43,16 @@ function formatCreatedAt(iso: string): string {
 const emptyForm: ItemPayload = {
   title: "",
   description: "",
-  group_id: null,
+  group_id: 0,
   stage_index: 0,
 };
 
 export default function ItemsPage() {
   const { groups, memoryModeForGroupId, totalStagesForGroupId } = useGroups();
+  const memoryCardGroups = useMemo(
+    () => filterGroupsByCategory(groups, "memory_card"),
+    [groups]
+  );
   const [groupFilterIds, setGroupFilterIds] = useState<Set<number>>(new Set());
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,15 +87,6 @@ export default function ItemsPage() {
     [formMemoryMode]
   );
 
-  const defaultCreateGroupId = useMemo(() => {
-    const realIds = Array.from(groupFilterIds).filter(
-      (id) => id !== UNGROUPED_GROUP_ID
-    );
-    return realIds.length === 1 ? realIds[0] : null;
-  }, [groupFilterIds]);
-
-  const groupName = (id: number | null) =>
-    id == null ? "无分组" : groups.find((g) => g.id === id)?.name ?? "未知分组";
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -206,11 +204,18 @@ export default function ItemsPage() {
 
   const handleEditGroupSelected = () => {
     if (selectedCount === 0) return;
+    if (memoryCardGroups.length === 0) {
+      const check = ensureGroupsBeforeCreate(groups, "memory_card");
+      if (!check.ok) {
+        window.alert(check.message);
+      }
+      return;
+    }
     setBulkGroupError("");
     setBulkGroupModalOpen(true);
   };
 
-  const handleConfirmBulkGroup = async (groupId: number | null) => {
+  const handleConfirmBulkGroup = async (groupId: number) => {
     const targets = sortedItems.filter((item) => selectedIds.has(item.id));
     if (targets.length === 0) return;
 
@@ -259,9 +264,14 @@ export default function ItemsPage() {
   };
 
   const openCreate = () => {
+    const check = ensureGroupsBeforeCreate(groups, "memory_card", groupFilterIds);
+    if (!check.ok) {
+      window.alert(check.message);
+      return;
+    }
     setEditingId(null);
     setFormError("");
-    setForm({ ...emptyForm, group_id: defaultCreateGroupId });
+    setForm({ ...emptyForm, group_id: check.groupId });
     setModalOpen(true);
   };
 
@@ -271,7 +281,7 @@ export default function ItemsPage() {
     setForm({
       title: item.title,
       description: item.description,
-      group_id: item.group_id,
+      group_id: item.group_id ?? memoryCardGroups[0]?.id ?? 0,
       learned_at: item.learned_at,
     });
     setModalOpen(true);
@@ -280,6 +290,10 @@ export default function ItemsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError("");
+    if (!form.group_id) {
+      setFormError("请选择分组");
+      return;
+    }
     try {
       if (editingId == null) {
         await itemApi.create({
@@ -413,6 +427,7 @@ export default function ItemsPage() {
               <PageGroupFilter
                 selectedIds={groupFilterIds}
                 onChange={setGroupFilterIds}
+                category="memory_card"
               />
             </div>
           </div>
@@ -483,7 +498,7 @@ export default function ItemsPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
-                    {groupName(item.group_id)}
+                    <GroupTag groupId={item.group_id} />
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-500 dark:text-slate-400">
                     {formatCreatedAt(item.created_at)}
@@ -560,7 +575,7 @@ export default function ItemsPage() {
       <BulkGroupEditModal
         open={bulkGroupModalOpen}
         selectedCount={selectedCount}
-        groups={groups}
+        groups={memoryCardGroups}
         loading={bulkLoading}
         error={bulkGroupError}
         onClose={() => {
@@ -613,18 +628,18 @@ export default function ItemsPage() {
               分组
             </label>
             <select
+              required
               className="mb-3 w-full rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none"
-              value={form.group_id ?? ""}
+              value={form.group_id || memoryCardGroups[0]?.id || ""}
               onChange={(e) =>
                 setForm({
                   ...form,
-                  group_id: e.target.value === "" ? null : Number(e.target.value),
+                  group_id: Number(e.target.value),
                   stage_index: 0,
                 })
               }
             >
-              <option value="">无分组</option>
-              {groups.map((g) => (
+              {memoryCardGroups.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.name}
                 </option>

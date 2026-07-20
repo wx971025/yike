@@ -17,6 +17,7 @@ import {
   warmUpKeyboardSounds,
 } from "../utils/wordReviewSounds";
 import { CardKindBadge } from "./CardKindBadge";
+import GroupTag from "./GroupTag";
 import ConfusablePairPromptModal from "./ConfusablePairPromptModal";
 import ConfusablePairCreateModal from "./ConfusablePairCreateModal";
 import { EditIcon, IconButton } from "./ItemIcons";
@@ -31,7 +32,7 @@ import { todayStr } from "../utils/reviewSchedule";
 
 interface WordReviewCardProps {
   word: ReviewWord;
-  groupLabel: string;
+  groupId: number | null;
   currentIndex: number;
   totalCount: number;
   wordOrderMode?: "shuffle" | "created_at";
@@ -125,7 +126,7 @@ function ShortcutHints() {
 
 export default function WordReviewCard({
   word,
-  groupLabel,
+  groupId,
   currentIndex,
   totalCount,
   wordOrderMode = "shuffle",
@@ -319,16 +320,24 @@ export default function WordReviewCard({
   }, [isCorrect]);
 
   useEffect(() => {
-    if (isTransitioning) return;
+    if (isTransitioning || createConfusableOpen || editModalOpen || confusablePrompt) return;
     if (isCorrect) {
       nextButtonRef.current?.focus();
     } else {
       inputRef.current?.focus();
     }
-  }, [word.id, isCorrect, isTransitioning, visible]);
+  }, [
+    word.id,
+    isCorrect,
+    isTransitioning,
+    visible,
+    createConfusableOpen,
+    editModalOpen,
+    confusablePrompt,
+  ]);
 
   useEffect(() => {
-    if (!isCorrect || isTransitioning) return;
+    if (!isCorrect || isTransitioning || createConfusableOpen || editModalOpen || confusablePrompt) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (!isConfirmKey(e.key) || e.repeat) return;
@@ -338,10 +347,18 @@ export default function WordReviewCard({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isCorrect, isTransitioning, advanceAfterCorrect]);
+  }, [
+    isCorrect,
+    isTransitioning,
+    advanceAfterCorrect,
+    createConfusableOpen,
+    editModalOpen,
+    confusablePrompt,
+  ]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (createConfusableOpen || editModalOpen || confusablePrompt) return;
       if (!e.ctrlKey || e.altKey) return;
 
       if (e.key === ";" || e.key === ":") {
@@ -389,6 +406,9 @@ export default function WordReviewCard({
     exampleCount,
     generatingExample,
     handleGenerateExample,
+    createConfusableOpen,
+    editModalOpen,
+    confusablePrompt,
   ]);
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -525,9 +545,7 @@ export default function WordReviewCard({
       <div className="flex shrink-0 items-center justify-between gap-3 px-2 py-2 sm:px-4">
         <div>
           <CardKindBadge kind="word" />
-          <span className="ml-2 inline-block rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs text-slate-500 dark:text-slate-400">
-            {groupLabel}
-          </span>
+          <GroupTag groupId={groupId} className="ml-2" />
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -637,9 +655,9 @@ export default function WordReviewCard({
       <form
         ref={formRef}
         onSubmit={handleSubmit}
-        className="flex min-h-0 flex-1 flex-col justify-start"
+        className="flex min-h-0 flex-1 flex-col"
       >
-        <div className="flex flex-col items-center px-4 pb-4 pt-2 sm:px-6">
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-start px-4 pb-2 pt-2 sm:px-6">
           <div className="mb-3 flex flex-wrap items-center justify-center gap-2 text-xs">
             <span className="rounded bg-blue-50 px-2 py-0.5 text-blue-600">
               第 {reviewMeta.stageIndex + 1}/{totalStages} 轮

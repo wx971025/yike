@@ -58,6 +58,7 @@ export default function CalendarPage() {
         <PageGroupFilter
           selectedIds={groupFilterIds}
           onChange={setGroupFilterIds}
+          category={["memory_card", "word", "reminder"]}
         />
       </div>
 

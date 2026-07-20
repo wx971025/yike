@@ -465,3 +465,221 @@ def migrate_user_ai_configs_table() -> None:
                 "INSERT INTO schema_meta (key, value) VALUES ('user_ai_configs_v1', '1')"
             )
         )
+
+
+def migrate_group_color_v1() -> None:
+    """为分组增加标签颜色字段，并为已有分组分配预设色。"""
+    presets = [
+        "#6366F1",
+        "#8B5CF6",
+        "#EC4899",
+        "#EF4444",
+        "#F97316",
+        "#EAB308",
+        "#22C55E",
+        "#14B8A6",
+        "#06B6D4",
+        "#3B82F6",
+        "#64748B",
+        "#A855F7",
+    ]
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text("SELECT value FROM schema_meta WHERE key = 'group_color_v1'")
+        ).fetchone()
+        if done:
+            return
+        if "color" not in _column_names(conn, "groups"):
+            conn.execute(
+                text(
+                    "ALTER TABLE groups ADD COLUMN color VARCHAR(7) NOT NULL DEFAULT '#6366F1'"
+                )
+            )
+        rows = conn.execute(text("SELECT id FROM groups ORDER BY id ASC")).fetchall()
+        for index, row in enumerate(rows):
+            conn.execute(
+                text("UPDATE groups SET color = :color WHERE id = :id"),
+                {"color": presets[index % len(presets)], "id": row[0]},
+            )
+        conn.execute(
+            text("INSERT INTO schema_meta (key, value) VALUES ('group_color_v1', '1')")
+        )
+
+
+def migrate_confusable_diff_analysis_v1() -> None:
+    """为易混词对增加 AI 差异分析缓存字段。"""
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text(
+                "SELECT value FROM schema_meta WHERE key = 'confusable_diff_analysis_v1'"
+            )
+        ).fetchone()
+        if done:
+            return
+        if "diff_analysis" not in _column_names(conn, "confusable_pairs"):
+            conn.execute(
+                text(
+                    "ALTER TABLE confusable_pairs ADD COLUMN diff_analysis TEXT NOT NULL DEFAULT ''"
+                )
+            )
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES ('confusable_diff_analysis_v1', '1')"
+            )
+        )
+
+
+def migrate_group_category_v1() -> None:
+    """为分组增加类别字段，并按已有内容推断类别。"""
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text("SELECT value FROM schema_meta WHERE key = 'group_category_v1'")
+        ).fetchone()
+        if done:
+            return
+        if "category" not in _column_names(conn, "groups"):
+            conn.execute(
+                text(
+                    "ALTER TABLE groups ADD COLUMN category VARCHAR(16) NOT NULL DEFAULT 'memory_card'"
+                )
+            )
+        rows = conn.execute(text("SELECT id FROM groups ORDER BY id ASC")).fetchall()
+        for row in rows:
+            group_id = row[0]
+            item_count = conn.execute(
+                text("SELECT COUNT(*) FROM items WHERE group_id = :group_id"),
+                {"group_id": group_id},
+            ).scalar_one()
+            word_count = conn.execute(
+                text("SELECT COUNT(*) FROM words WHERE group_id = :group_id"),
+                {"group_id": group_id},
+            ).scalar_one()
+            if word_count > 0 and item_count == 0:
+                category = "word"
+            else:
+                category = "memory_card"
+            conn.execute(
+                text("UPDATE groups SET category = :category WHERE id = :id"),
+                {"category": category, "id": group_id},
+            )
+        conn.execute(
+            text("INSERT INTO schema_meta (key, value) VALUES ('group_category_v1', '1')")
+        )
+
+
+def migrate_reminder_group_id_v1() -> None:
+    """为事项卡片增加分组字段。"""
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text("SELECT value FROM schema_meta WHERE key = 'reminder_group_id_v1'")
+        ).fetchone()
+        if done:
+            return
+        if "group_id" not in _column_names(conn, "reminders"):
+            conn.execute(
+                text("ALTER TABLE reminders ADD COLUMN group_id INTEGER REFERENCES groups(id)")
+            )
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES ('reminder_group_id_v1', '1')"
+            )
+        )
+
+
+def migrate_assign_default_groups_v1() -> None:
+    """为无分组的卡片/单词/事项分配默认分组并回填。"""
+    defaults = {
+        "memory_card": "默认记忆分组",
+        "word": "默认单词分组",
+        "reminder": "默认事项分组",
+    }
+    table_by_category = {
+        "memory_card": "items",
+        "word": "words",
+        "reminder": "reminders",
+    }
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text("SELECT value FROM schema_meta WHERE key = 'assign_default_groups_v1'")
+        ).fetchone()
+        if done:
+            return
+
+        user_rows = conn.execute(text("SELECT id FROM users ORDER BY id ASC")).fetchall()
+        for user_row in user_rows:
+            user_id = user_row[0]
+            for category, default_name in defaults.items():
+                table = table_by_category[category]
+                has_null = conn.execute(
+                    text(
+                        f"SELECT 1 FROM {table} WHERE user_id = :user_id AND group_id IS NULL LIMIT 1"
+                    ),
+                    {"user_id": user_id},
+                ).fetchone()
+                if not has_null:
+                    continue
+                existing = conn.execute(
+                    text(
+                        "SELECT id FROM groups WHERE user_id = :user_id AND category = :category "
+                        "ORDER BY id ASC LIMIT 1"
+                    ),
+                    {"user_id": user_id, "category": category},
+                ).fetchone()
+                if existing:
+                    group_id = existing[0]
+                else:
+                    conn.execute(
+                        text(
+                            "INSERT INTO groups (user_id, name, memory_mode, color, category, created_at) "
+                            "VALUES (:user_id, :name, 'ebbinghaus', '#6366F1', :category, CURRENT_TIMESTAMP)"
+                        ),
+                        {"user_id": user_id, "name": default_name, "category": category},
+                    )
+                    group_id = conn.execute(text("SELECT last_insert_rowid()")).scalar_one()
+                conn.execute(
+                    text(
+                        f"UPDATE {table} SET group_id = :group_id "
+                        "WHERE user_id = :user_id AND group_id IS NULL"
+                    ),
+                    {"group_id": group_id, "user_id": user_id},
+                )
+
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES ('assign_default_groups_v1', '1')"
+            )
+        )
+
+
+def migrate_reminder_group_schedule_mode_v1() -> None:
+    """事项分组默认使用提醒方式，而非记忆方式。"""
+    from .services.reminder_mode import REMINDER_MODE_VALUES
+
+    valid = ", ".join(f"'{value}'" for value in sorted(REMINDER_MODE_VALUES))
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text(
+                "SELECT value FROM schema_meta WHERE key = 'reminder_group_schedule_mode_v1'"
+            )
+        ).fetchone()
+        if done:
+            return
+
+        conn.execute(
+            text(
+                f"UPDATE groups SET memory_mode = 'daily' "
+                f"WHERE category = 'reminder' AND memory_mode NOT IN ({valid})"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES "
+                "('reminder_group_schedule_mode_v1', '1')"
+            )
+        )

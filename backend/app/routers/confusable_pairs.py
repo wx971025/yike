@@ -1,5 +1,7 @@
 from datetime import date
 
+import json
+
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,8 +11,17 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..deps import get_current_user
 from ..models import ConfusablePair, User, Word
-from ..schemas import BulkPlanResult, ConfusablePairOut, ReviewConfusablePairOut
+from ..schemas import (
+    BulkPlanResult,
+    ConfusableDiffAnalysisResponse,
+    ConfusablePairOut,
+    ReviewConfusablePairOut,
+)
 from ..dates import app_today
+from ..services.confusable_diff_ai import (
+    generate_confusable_diff_analysis,
+    parse_stored_diff_analysis,
+)
 from ..services.confusable_pairs import create_from_review, create_pair, preview_from_review
 from ..services.memory_schedule import normalize_memory_mode
 from ..services.review import mark_reviewed, reset_to_first_stage, skip_today
@@ -171,6 +182,24 @@ def update_confusable_pair_example(
     db.commit()
     db.refresh(pair)
     return pair
+
+
+@router.post("/{pair_id}/diff-analysis", response_model=ConfusableDiffAnalysisResponse)
+async def get_or_create_diff_analysis(
+    pair_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    pair = _get_owned_pair(pair_id, user, db)
+    existing = parse_stored_diff_analysis(pair.diff_analysis)
+    if existing:
+        return ConfusableDiffAnalysisResponse(cached=True, analysis=existing)
+
+    analysis = await generate_confusable_diff_analysis(user, db, pair)
+    pair.diff_analysis = json.dumps(analysis, ensure_ascii=False)
+    db.commit()
+    db.refresh(pair)
+    return ConfusableDiffAnalysisResponse(cached=False, analysis=analysis)
 
 
 @router.delete("/{pair_id}", status_code=status.HTTP_204_NO_CONTENT)

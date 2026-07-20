@@ -7,6 +7,7 @@ from .migrations import (
     migrate_ebbinghaus_schedule_v3,
     migrate_reminders_v1,
     migrate_confusable_pairs_v1,
+    migrate_confusable_diff_analysis_v1,
     migrate_example_translation_v1,
     migrate_word_examples_v2,
     migrate_in_plan,
@@ -18,6 +19,11 @@ from .migrations import (
     migrate_user_ai_configs_table,
     migrate_user_profile,
     migrate_group_memory_mode,
+    migrate_group_color_v1,
+    migrate_group_category_v1,
+    migrate_reminder_group_id_v1,
+    migrate_assign_default_groups_v1,
+    migrate_reminder_group_schedule_mode_v1,
 )
 from .routers import ai, ai_configs, auth, calendar, confusable_pairs, dictionary, groups, items, reminders, skills, words
 from .services.dictionary import schedule_dictionary_setup
@@ -32,9 +38,15 @@ migrate_user_ai_config()
 migrate_user_ai_config_verified()
 migrate_user_ai_configs_table()
 migrate_group_memory_mode()
+migrate_group_color_v1()
+migrate_group_category_v1()
+migrate_reminder_group_id_v1()
+migrate_assign_default_groups_v1()
+migrate_reminder_group_schedule_mode_v1()
 migrate_ebbinghaus_schedule_v3()
 migrate_reminders_v1()
 migrate_confusable_pairs_v1()
+migrate_confusable_diff_analysis_v1()
 migrate_example_translation_v1()
 migrate_word_examples_v2()
 

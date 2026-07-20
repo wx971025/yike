@@ -3,12 +3,15 @@ import BrandMark from "./BrandMark";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import AiAssistant from "./AiAssistant";
 import AiConfigModal from "./AiConfigModal";
+import OnboardingTour from "./OnboardingTour";
 import SettingsMenu from "./SettingsMenu";
 import { ChevronDownIcon } from "./ItemIcons";
 import { reviewApi, reminderApi } from "../api";
+import { useAuth } from "../context/AuthContext";
 import {
   WordReviewUiProvider,
 } from "../context/WordReviewUiContext";
+import { isOnboardingCompleted } from "../utils/onboarding";
 
 const topNavItems = [
   { to: "/", label: "今日复习", icon: "📋", end: true },
@@ -68,6 +71,7 @@ function NavGroup({
             <NavLink
               key={child.to}
               to={child.to}
+              data-tour={child.to === "/words" ? "nav-words" : undefined}
               className={({ isActive }) =>
                 `block rounded-lg py-2 pl-7 pr-3 text-sm transition ${
                   isActive
@@ -95,8 +99,10 @@ export default function Layout() {
 
 function LayoutShell() {
   const location = useLocation();
+  const { user } = useAuth();
   const [aiOpen, setAiOpen] = useState(false);
   const [aiConfigModalOpen, setAiConfigModalOpen] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [dueCount, setDueCount] = useState(0);
   const isCardSection = cardNavGroup.paths.includes(location.pathname);
   const [cardsOpen, setCardsOpen] = useState(isCardSection);
@@ -131,6 +137,12 @@ function LayoutShell() {
     if (isCardSection) setCardsOpen(true);
   }, [isCardSection]);
 
+  useEffect(() => {
+    if (user && !isOnboardingCompleted(user.id)) {
+      setShowOnboarding(true);
+    }
+  }, [user]);
+
   return (
     <div className="flex h-screen overflow-hidden">
       <aside className="flex h-screen w-56 shrink-0 flex-col overflow-hidden border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
@@ -144,6 +156,7 @@ function LayoutShell() {
               key={item.to}
               to={item.to}
               end={item.end}
+              data-tour={item.to === "/" ? "nav-review" : item.to === "/plan" ? "nav-plan" : undefined}
               className={({ isActive }) =>
                 `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
                   isActive
@@ -220,6 +233,14 @@ function LayoutShell() {
 
       {aiConfigModalOpen && (
         <AiConfigModal onClose={() => setAiConfigModalOpen(false)} />
+      )}
+
+      {showOnboarding && user && (
+        <OnboardingTour
+          userId={user.id}
+          onExpandCardsNav={() => setCardsOpen(true)}
+          onComplete={() => setShowOnboarding(false)}
+        />
       )}
     </div>
   );

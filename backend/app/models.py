@@ -72,6 +72,8 @@ class Group(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     memory_mode: Mapped[str] = mapped_column(String(32), default="ebbinghaus")
+    color: Mapped[str] = mapped_column(String(7), default="#6366f1", nullable=False)
+    category: Mapped[str] = mapped_column(String(16), default="memory_card", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped["User"] = relationship(back_populates="groups")
@@ -79,6 +81,9 @@ class Group(Base):
         back_populates="group", cascade="all, delete-orphan"
     )
     words: Mapped[list["Word"]] = relationship(
+        back_populates="group", cascade="all, delete-orphan"
+    )
+    reminders: Mapped[list["Reminder"]] = relationship(
         back_populates="group", cascade="all, delete-orphan"
     )
 
@@ -163,6 +168,7 @@ class ConfusablePair(Base):
     meaning_b: Mapped[str] = mapped_column(Text, nullable=False)
     example_b: Mapped[str] = mapped_column(Text, default="")
     example_b_translation: Mapped[str] = mapped_column(Text, default="")
+    diff_analysis: Mapped[str] = mapped_column(Text, default="")
     learned_at: Mapped[date] = mapped_column(Date, default=date.today)
     stage_index: Mapped[int] = mapped_column(Integer, default=0)
     stage_status: Mapped[str] = mapped_column(String(16), default="pending")
@@ -183,6 +189,9 @@ class Reminder(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("groups.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     remind_date: Mapped[date] = mapped_column(Date, nullable=False)
     recurrence: Mapped[str | None] = mapped_column(String(16), nullable=True)
@@ -194,6 +203,7 @@ class Reminder(Base):
     )
 
     user: Mapped["User"] = relationship(back_populates="reminders")
+    group: Mapped["Group | None"] = relationship(back_populates="reminders")
 
 
 class Skill(Base):

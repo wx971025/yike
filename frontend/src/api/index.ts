@@ -1,8 +1,10 @@
 import api from "./client";
 import type {
   CalendarResponse,
+  ConfusableDiffAnalysis,
   ConfusablePair,
   Group,
+  GroupCategory,
   Item,
   Reminder,
   ReviewConfusablePair,
@@ -68,12 +70,28 @@ export const authApi = {
 };
 
 export const groupApi = {
-  list: (q?: string) =>
-    api.get<Group[]>("/groups", { params: q ? { q } : {} }),
-  create: (name: string, memory_mode?: string) =>
-    api.post<Group>("/groups", { name, memory_mode }),
-  update: (id: number, payload: { name?: string; memory_mode?: string }) =>
-    api.put<Group>(`/groups/${id}`, payload),
+  list: (q?: string, category?: GroupCategory) =>
+    api.get<Group[]>("/groups", {
+      params: {
+        ...(q ? { q } : {}),
+        ...(category ? { category } : {}),
+      },
+    }),
+  create: (
+    name: string,
+    memory_mode?: string,
+    color?: string,
+    category?: GroupCategory
+  ) => api.post<Group>("/groups", { name, memory_mode, color, category }),
+  update: (
+    id: number,
+    payload: {
+      name?: string;
+      memory_mode?: string;
+      color?: string;
+      category?: GroupCategory;
+    }
+  ) => api.put<Group>(`/groups/${id}`, payload),
   remove: (id: number) => api.delete(`/groups/${id}`),
 };
 
@@ -224,14 +242,16 @@ export interface ReminderPayload {
   recurring: boolean;
   recurrence?: string | null;
   in_plan?: boolean;
+  group_id?: number | null;
 }
 
 export const reminderApi = {
-  list: (inPlan?: boolean | null, q?: string) =>
+  list: (inPlan?: boolean | null, q?: string, groupIds?: GroupFilterSelection) =>
     api.get<Reminder[]>("/reminders", {
       params: {
         ...(inPlan != null ? { in_plan: inPlan } : {}),
         ...(q ? { q } : {}),
+        ...groupFilterParams(groupIds),
       },
     }),
   today: () => api.get<Reminder[]>("/reminders/today"),
@@ -315,6 +335,10 @@ export const confusablePairApi = {
       example_translation: string;
     }
   ) => api.patch<ConfusablePair>(`/confusable-pairs/${id}/example`, payload),
+  diffAnalysis: (id: number) =>
+    api.post<{ cached: boolean; analysis: ConfusableDiffAnalysis }>(
+      `/confusable-pairs/${id}/diff-analysis`
+    ),
   joinPlan: (id: number) =>
     api.post<ConfusablePair>(`/confusable-pairs/${id}/join-plan`),
   leavePlan: (id: number) =>

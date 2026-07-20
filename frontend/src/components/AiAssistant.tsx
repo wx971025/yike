@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { aiApi, authApi } from "../api";
 import { ClearContextIcon, IconButton } from "./ItemIcons";
 import MarkdownMessage from "./MarkdownMessage";
+import GroupMentionInput from "./GroupMentionInput";
 import { useGroups } from "../context/GroupContext";
 import type { AiConfigStatus, Group } from "../types";
 import {
+  expandMentionsForSend,
   extractMentionGroupNames,
   getActiveMention,
   insertGroupMention,
@@ -193,7 +195,7 @@ export default function AiAssistant({
 
 
   const send = async (text: string) => {
-    const content = text.trim();
+    const content = expandMentionsForSend(text.trim());
     if (!content || loading) return;
 
     if (!aiReady) {
@@ -418,8 +420,8 @@ export default function AiAssistant({
           className="px-3 py-3"
         >
           <div className="flex gap-2">
-            <textarea
-              ref={inputRef}
+            <GroupMentionInput
+              inputRef={inputRef}
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleInputKeyDown}
@@ -430,7 +432,6 @@ export default function AiAssistant({
               }
               disabled={loading || !aiReady}
               rows={2}
-              className="flex-1 resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-blue-400"
             />
             <button
               type="submit"

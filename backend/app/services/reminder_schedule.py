@@ -6,6 +6,7 @@ RECURRENCE_VALUES = frozenset(
         "daily",
         "weekly",
         "monthly",
+        "yearly",
         "every_2",
         "every_3",
         "every_4",
@@ -13,6 +14,7 @@ RECURRENCE_VALUES = frozenset(
         "every_6",
         "weekends",
         "weekdays",
+        *(f"weekly_{day}" for day in range(1, 8)),
     }
 )
 
@@ -36,6 +38,13 @@ def _add_months(base: date, months: int) -> date:
     return date(year, month, min(base.day, max_day))
 
 
+def _add_years(base: date, years: int) -> date:
+    try:
+        return date(base.year + years, base.month, base.day)
+    except ValueError:
+        return date(base.year + years, base.month, min(base.day, 28))
+
+
 def advance_remind_date(current: date, recurrence: str, *, after: date) -> date:
     if recurrence == "daily":
         d = current
@@ -49,6 +58,13 @@ def advance_remind_date(current: date, recurrence: str, *, after: date) -> date:
             d += timedelta(days=7)
         return d
 
+    if recurrence.startswith("weekly_"):
+        target_weekday = int(recurrence.split("_", 1)[1]) - 1
+        d = current
+        while d <= after or d.weekday() != target_weekday:
+            d += timedelta(days=1)
+        return d
+
     if recurrence == "monthly":
         months = 1
         while True:
@@ -56,6 +72,14 @@ def advance_remind_date(current: date, recurrence: str, *, after: date) -> date:
             if d > after:
                 return d
             months += 1
+
+    if recurrence == "yearly":
+        years = 1
+        while True:
+            d = _add_years(current, years)
+            if d > after:
+                return d
+            years += 1
 
     if recurrence.startswith("every_"):
         step = int(recurrence.split("_", 1)[1])

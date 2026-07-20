@@ -1,30 +1,7 @@
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-
-interface MarkdownMessageProps {
-  content: string;
-  variant: "user" | "assistant";
-}
-
-function MentionBadge({
-  name,
-  variant,
-}: {
-  name: string;
-  variant: "user" | "assistant";
-}) {
-  const className =
-    variant === "user"
-      ? "mx-0.5 inline-block rounded border-l-2 border-white/50 bg-white/15 px-1.5 py-0.5 text-xs font-semibold not-italic text-blue-50 no-underline"
-      : "mx-0.5 inline-block rounded border-l-2 border-violet-400 bg-violet-50 px-1.5 py-0.5 text-xs font-semibold not-italic text-violet-700 no-underline dark:border-violet-500 dark:bg-violet-950/60 dark:text-violet-200";
-
-  return (
-    <span className={className} title={`引用分组：${name}`}>
-      @{name}
-    </span>
-  );
-}
+import MentionBadge from "./MentionBadge";
 
 const assistantClasses = [
   "break-words",
@@ -69,6 +46,11 @@ const userClasses = [
   "[&_td]:border [&_td]:border-white/30 [&_td]:px-2 [&_td]:py-1",
   "[&_hr]:my-2 [&_hr]:border-white/30",
 ].join(" ");
+
+interface MarkdownMessageProps {
+  content: string;
+  variant: "user" | "assistant";
+}
 
 function buildComponents(variant: "user" | "assistant"): Components {
   return {

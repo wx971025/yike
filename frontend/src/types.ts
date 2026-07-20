@@ -26,10 +26,14 @@ export interface AiConfigItem {
 
 export type MemoryMode = "ebbinghaus" | "daily_7" | "daily_15" | "daily_30";
 
+export type GroupCategory = "memory_card" | "word" | "reminder";
+
 export interface Group {
   id: number;
   name: string;
   memory_mode: MemoryMode;
+  color: string;
+  category: GroupCategory;
   created_at: string;
 }
 
@@ -56,6 +60,7 @@ export interface ReviewItem extends Item {
 
 export interface Reminder {
   id: number;
+  group_id: number | null;
   title: string;
   remind_date: string;
   recurrence: string | null;
@@ -96,6 +101,15 @@ export interface ReviewWord extends Word {
   overdue_days: number;
 }
 
+export interface ConfusableDiffAnalysis {
+  sentence_a: string;
+  sentence_a_zh: string;
+  sentence_b: string;
+  sentence_b_zh: string;
+  difference: string;
+  generated_at?: string;
+}
+
 export interface ConfusablePair {
   id: number;
   group_id: number | null;
@@ -112,6 +126,7 @@ export interface ConfusablePair {
   meaning_b: string;
   example_b: string;
   example_b_translation: string;
+  diff_analysis: ConfusableDiffAnalysis | null;
   learned_at: string;
   stage_index: number;
   stage_status: string;

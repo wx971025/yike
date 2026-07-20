@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { wordApi, type WordPayload } from "../api";
 import { useGroups } from "../context/GroupContext";
 import type { Word } from "../types";
+import { filterGroupsByCategory } from "../utils/groupCategory";
 import WordExamplesEditor, {
   sanitizeWordExamples,
   wordExamplesFromWord,
@@ -21,6 +22,10 @@ export default function WordEditModal({
   onSaved,
 }: WordEditModalProps) {
   const { groups } = useGroups();
+  const wordGroups = useMemo(
+    () => filterGroupsByCategory(groups, "word"),
+    [groups]
+  );
   const [form, setForm] = useState<WordPayload>({
     word: word.word,
     phonetic: word.phonetic,
@@ -44,16 +49,20 @@ export default function WordEditModal({
       example: word.example,
       example_translation: word.example_translation,
       examples: wordExamplesFromWord(word),
-      group_id: word.group_id,
+      group_id: word.group_id ?? wordGroups[0]?.id ?? 0,
     });
     setFormError("");
-  }, [open, word]);
+  }, [open, word, wordGroups]);
 
   if (!open) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError("");
+    if (!form.group_id) {
+      setFormError("请选择分组");
+      return;
+    }
     setSaving(true);
     try {
       const examples = sanitizeWordExamples(form.examples);
@@ -158,17 +167,17 @@ export default function WordEditModal({
           分组
         </label>
         <select
+          required
           className="mb-5 w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:focus:border-blue-400"
-          value={form.group_id ?? ""}
+          value={form.group_id || wordGroups[0]?.id || ""}
           onChange={(e) =>
             setForm({
               ...form,
-              group_id: e.target.value === "" ? null : Number(e.target.value),
+              group_id: Number(e.target.value),
             })
           }
         >
-          <option value="">无分组</option>
-          {groups.map((g) => (
+          {wordGroups.map((g) => (
             <option key={g.id} value={g.id}>
               {g.name}
             </option>

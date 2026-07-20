@@ -1,24 +1,31 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useGroups } from "../context/GroupContext";
+import type { GroupCategory } from "../types";
+import { filterGroupsByCategory } from "../utils/groupCategory";
 import {
   groupFilterLabel,
   toggleGroupFilterId,
-  UNGROUPED_GROUP_ID,
   type GroupFilterSelection,
 } from "../utils/groupFilter";
 
 interface GroupMultiFilterProps {
   selectedIds: GroupFilterSelection;
   onChange: (ids: GroupFilterSelection) => void;
+  category?: GroupCategory | GroupCategory[];
 }
 
 export default function GroupMultiFilter({
   selectedIds,
   onChange,
+  category,
 }: GroupMultiFilterProps) {
   const { groups } = useGroups();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const visibleGroups = useMemo(
+    () => filterGroupsByCategory(groups, category),
+    [groups, category]
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -46,7 +53,7 @@ export default function GroupMultiFilter({
       >
         <span className="text-slate-500 dark:text-slate-400">分组筛选</span>
         <span className="max-w-[10rem] truncate font-medium">
-          {groupFilterLabel(selectedIds, groups)}
+          {groupFilterLabel(selectedIds, visibleGroups)}
         </span>
         <span className="text-xs text-slate-400" aria-hidden>
           {open ? "▲" : "▼"}
@@ -64,16 +71,7 @@ export default function GroupMultiFilter({
             />
             <span>全部分组</span>
           </label>
-          <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/60">
-            <input
-              type="checkbox"
-              checked={selectedIds.has(UNGROUPED_GROUP_ID)}
-              onChange={() => toggle(UNGROUPED_GROUP_ID)}
-              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600"
-            />
-            <span>无分组</span>
-          </label>
-          {groups.map((group) => (
+          {visibleGroups.map((group) => (
             <label
               key={group.id}
               className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/60"
@@ -87,6 +85,11 @@ export default function GroupMultiFilter({
               <span className="truncate">{group.name}</span>
             </label>
           ))}
+          {visibleGroups.length === 0 && (
+            <p className="px-2 py-2 text-xs text-slate-400 dark:text-slate-500">
+              暂无该类分组
+            </p>
+          )}
         </div>
       )}
     </div>

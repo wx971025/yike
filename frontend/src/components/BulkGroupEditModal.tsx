@@ -7,7 +7,7 @@ interface BulkGroupEditModalProps {
   loading?: boolean;
   error?: string;
   onClose: () => void;
-  onConfirm: (groupId: number | null) => void;
+  onConfirm: (groupId: number) => void;
 }
 
 export default function BulkGroupEditModal({
@@ -33,8 +33,10 @@ export default function BulkGroupEditModal({
           e.preventDefault();
           const formData = new FormData(e.currentTarget);
           const value = formData.get("group_id");
-          const groupId = value === "" ? null : Number(value);
-          onConfirm(groupId);
+          if (value == null || value === "") {
+            return;
+          }
+          onConfirm(Number(value));
         }}
       >
         <h3 className="mb-2 text-base font-semibold text-slate-800 dark:text-slate-100">
@@ -43,6 +45,12 @@ export default function BulkGroupEditModal({
         <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
           将选中的 {selectedCount} 项移动到以下分组
         </p>
+
+        {groups.length === 0 && (
+          <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+            暂无可用分组，请先到分组管理创建
+          </p>
+        )}
 
         {error && (
           <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-300">
@@ -55,11 +63,11 @@ export default function BulkGroupEditModal({
         </label>
         <select
           name="group_id"
-          defaultValue=""
-          disabled={loading}
+          defaultValue={groups[0]?.id ?? ""}
+          disabled={loading || groups.length === 0}
+          required
           className="mb-5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-blue-400"
         >
-          <option value="">无分组</option>
           {groups.map((group) => (
             <option key={group.id} value={group.id}>
               {group.name}
@@ -78,7 +86,7 @@ export default function BulkGroupEditModal({
           </button>
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || groups.length === 0}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {loading ? "处理中..." : "确定"}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { itemApi, wordApi, reminderApi } from "../api";
 import ForgettingCurveModal from "../components/ForgettingCurveModal";
+import GroupTag from "../components/GroupTag";
 import PageGroupFilter from "../components/PageGroupFilter";
 import PlanMultiSelectBar, {
   MultiSelectToggleButton,
@@ -32,13 +33,15 @@ type PlanTab = "item" | "word" | "reminder";
 
 export default function PlanItemsPage() {
   const {
-    groups,
     memoryModeForGroupId,
     totalStagesForGroupId,
   } = useGroups();
   const [activeTab, setActiveTab] = useState<PlanTab>("item");
   const [itemGroupFilterIds, setItemGroupFilterIds] = useState<Set<number>>(new Set());
   const [wordGroupFilterIds, setWordGroupFilterIds] = useState<Set<number>>(new Set());
+  const [reminderGroupFilterIds, setReminderGroupFilterIds] = useState<Set<number>>(
+    new Set()
+  );
   const [items, setItems] = useState<Item[]>([]);
   const [words, setWords] = useState<Word[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
@@ -71,12 +74,23 @@ export default function PlanItemsPage() {
   } = useMultiSelect();
 
   const activeGroupFilterIds =
-    activeTab === "item" ? itemGroupFilterIds : wordGroupFilterIds;
+    activeTab === "item"
+      ? itemGroupFilterIds
+      : activeTab === "word"
+        ? wordGroupFilterIds
+        : reminderGroupFilterIds;
   const setActiveGroupFilterIds =
-    activeTab === "item" ? setItemGroupFilterIds : setWordGroupFilterIds;
-
-  const groupName = (id: number | null) =>
-    id == null ? "无分组" : groups.find((g) => g.id === id)?.name ?? "未知分组";
+    activeTab === "item"
+      ? setItemGroupFilterIds
+      : activeTab === "word"
+        ? setWordGroupFilterIds
+        : setReminderGroupFilterIds;
+  const activeGroupCategory =
+    activeTab === "item"
+      ? ("memory_card" as const)
+      : activeTab === "word"
+        ? ("word" as const)
+        : ("reminder" as const);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -102,9 +116,13 @@ export default function PlanItemsPage() {
   }, [wordGroupFilterIds, debouncedSearch]);
 
   const loadReminders = useCallback(async () => {
-    const res = await reminderApi.list(true, debouncedSearch || undefined);
+    const res = await reminderApi.list(
+      true,
+      debouncedSearch || undefined,
+      reminderGroupFilterIds
+    );
     setReminders(res.data);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, reminderGroupFilterIds]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -457,12 +475,11 @@ export default function PlanItemsPage() {
             >
               {bulkLoading ? "处理中..." : "全部移除"}
             </button>
-            {activeTab !== "reminder" && (
-              <PageGroupFilter
-                selectedIds={activeGroupFilterIds}
-                onChange={setActiveGroupFilterIds}
-              />
-            )}
+            <PageGroupFilter
+              selectedIds={activeGroupFilterIds}
+              onChange={setActiveGroupFilterIds}
+              category={activeGroupCategory}
+            />
           </div>
         </div>
       )}
@@ -542,7 +559,7 @@ export default function PlanItemsPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
-                      {groupName(item.group_id)}
+                      <GroupTag groupId={item.group_id} />
                     </td>
                     <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
                       {getNextReviewDate(item, memoryModeForGroupId(item.group_id)) ??
@@ -670,7 +687,7 @@ export default function PlanItemsPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
-                      {groupName(word.group_id)}
+                      <GroupTag groupId={word.group_id} />
                     </td>
                     <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
                       {getNextReviewDate(word, memoryModeForGroupId(word.group_id)) ??

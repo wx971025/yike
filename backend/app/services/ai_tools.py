@@ -6,6 +6,11 @@ from sqlalchemy.orm import Session
 
 from ..dates import app_today
 from ..models import Group, Item, Skill, User, Word
+from ..services.group_category import (
+    GROUP_CATEGORY_MEMORY_CARD,
+    GROUP_CATEGORY_WORD,
+    normalize_group_category,
+)
 from ..services.items import duplicate_title_message, find_item_in_group
 from ..services.dictionary import lookup_word as dict_lookup
 from ..services.words import api_duplicate_word_detail, enrich_word_fields, find_word_in_group
@@ -52,6 +57,11 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                         "type": "string",
                         "enum": ["ebbinghaus", "daily_7", "daily_15", "daily_30"],
                         "description": "记忆方式：ebbinghaus=艾宾浩斯间隔复习，daily_7/15/30=连续巩固每日复习",
+                    },
+                    "category": {
+                        "type": "string",
+                        "enum": ["memory_card", "word", "reminder"],
+                        "description": "分组类别：memory_card=记忆卡片，word=单词卡片，reminder=事项卡片",
                     },
                 },
                 "required": ["name"],
@@ -349,14 +359,19 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
 ]
 
 
-def _find_group_by_name(db: Session, user: User, name: str | None) -> Group | None:
+def _find_group_by_name(
+    db: Session,
+    user: User,
+    name: str | None,
+    *,
+    category: str | None = None,
+) -> Group | None:
     if not name:
         return None
-    return (
-        db.query(Group)
-        .filter(Group.user_id == user.id, Group.name == name)
-        .first()
-    )
+    query = db.query(Group).filter(Group.user_id == user.id, Group.name == name)
+    if category is not None:
+        query = query.filter(Group.category == category)
+    return query.first()
 
 
 def _find_item_by_title(db: Session, user: User, title: str) -> Item | None:
@@ -499,6 +514,7 @@ def execute_tool(
             {
                 "id": g.id,
                 "name": g.name,
+                "category": g.category,
                 "memory_mode": normalize_memory_mode(g.memory_mode),
                 "memory_mode_label": MEMORY_MODE_LABELS.get(
                     normalize_memory_mode(g.memory_mode), ""
@@ -516,7 +532,18 @@ def execute_tool(
         if exists:
             return json.dumps({"error": f"分组「{group_name}」已存在"}, ensure_ascii=False), effects
         memory_mode = normalize_memory_mode(arguments.get("memory_mode"))
-        group = Group(user_id=user.id, name=group_name, memory_mode=memory_mode)
+        try:
+            category = normalize_group_category(
+                arguments.get("category"), default=GROUP_CATEGORY_MEMORY_CARD
+            )
+        except ValueError as exc:
+            return json.dumps({"error": str(exc)}, ensure_ascii=False), effects
+        group = Group(
+            user_id=user.id,
+            name=group_name,
+            memory_mode=memory_mode,
+            category=category,
+        )
         db.add(group)
         db.commit()
         db.refresh(group)
@@ -526,6 +553,7 @@ def execute_tool(
                 {
                     "id": group.id,
                     "name": group.name,
+                    "category": group.category,
                     "memory_mode": memory_mode,
                     "memory_mode_label": MEMORY_MODE_LABELS.get(memory_mode, ""),
                     "created": True,
@@ -539,7 +567,9 @@ def execute_tool(
         query = db.query(Item).filter(Item.user_id == user.id)
         group_name = arguments.get("group_name")
         if group_name:
-            group = _find_group_by_name(db, user, group_name)
+            group = _find_group_by_name(
+                db, user, group_name, category=GROUP_CATEGORY_MEMORY_CARD
+            )
             if not group:
                 return json.dumps({"error": f"分组「{group_name}」不存在"}, ensure_ascii=False), effects
             query = query.filter(Item.group_id == group.id)
@@ -569,9 +599,30 @@ def execute_tool(
         group_id = None
         group_name = arguments.get("group_name")
         if group_name:
-            group = _find_group_by_name(db, user, group_name)
+            group = _find_group_by_name(
+                db, user, group_name, category=GROUP_CATEGORY_MEMORY_CARD
+            )
             if not group:
                 return json.dumps({"error": f"分组「{group_name}」不存在"}, ensure_ascii=False), effects
+            group_id = group.id
+        else:
+            group = (
+                db.query(Group)
+                .filter(
+                    Group.user_id == user.id,
+                    Group.category == GROUP_CATEGORY_MEMORY_CARD,
+                )
+                .order_by(Group.created_at.asc())
+                .first()
+            )
+            if not group:
+                return (
+                    json.dumps(
+                        {"error": "请先创建一个记忆卡片分组"},
+                        ensure_ascii=False,
+                    ),
+                    effects,
+                )
             group_id = group.id
         if find_item_in_group(db, user, title, group_id):
             return json.dumps({"error": duplicate_title_message(title)}, ensure_ascii=False), effects
@@ -632,7 +683,9 @@ def execute_tool(
         query = db.query(Item).filter(Item.user_id == user.id, Item.in_plan.is_(True))
         group_name = arguments.get("group_name")
         if group_name:
-            group = _find_group_by_name(db, user, group_name)
+            group = _find_group_by_name(
+                db, user, group_name, category=GROUP_CATEGORY_MEMORY_CARD
+            )
             if not group:
                 return json.dumps({"error": f"分组「{group_name}」不存在"}, ensure_ascii=False), effects
             query = query.filter(Item.group_id == group.id)
@@ -697,7 +750,9 @@ def execute_tool(
         )
         group_name = arguments.get("group_name")
         if group_name:
-            group = _find_group_by_name(db, user, group_name)
+            group = _find_group_by_name(
+                db, user, group_name, category=GROUP_CATEGORY_MEMORY_CARD
+            )
             if not group:
                 return json.dumps({"error": f"分组「{group_name}」不存在"}, ensure_ascii=False), effects
             query = query.filter(Item.group_id == group.id)
@@ -741,7 +796,9 @@ def execute_tool(
         )
         group_name = arguments.get("group_name")
         if group_name:
-            group = _find_group_by_name(db, user, group_name.strip())
+            group = _find_group_by_name(
+                db, user, group_name.strip(), category=GROUP_CATEGORY_MEMORY_CARD
+            )
             if not group:
                 return json.dumps({"error": f"分组「{group_name}」不存在"}, ensure_ascii=False), effects
             query = query.filter(Item.group_id == group.id)
@@ -795,7 +852,9 @@ def execute_tool(
         )
         group_name = arguments.get("group_name")
         if group_name:
-            group = _find_group_by_name(db, user, group_name.strip())
+            group = _find_group_by_name(
+                db, user, group_name.strip(), category=GROUP_CATEGORY_WORD
+            )
             if not group:
                 return json.dumps({"error": f"分组「{group_name}」不存在"}, ensure_ascii=False), effects
             query = query.filter(Word.group_id == group.id)
@@ -861,9 +920,24 @@ def execute_tool(
         group_id = None
         group_name = arguments.get("group_name")
         if group_name:
-            group = _find_group_by_name(db, user, group_name)
+            group = _find_group_by_name(
+                db, user, group_name, category=GROUP_CATEGORY_WORD
+            )
             if not group:
                 return json.dumps({"error": f"分组「{group_name}」不存在"}, ensure_ascii=False), effects
+            group_id = group.id
+        else:
+            group = (
+                db.query(Group)
+                .filter(Group.user_id == user.id, Group.category == GROUP_CATEGORY_WORD)
+                .order_by(Group.created_at.asc())
+                .first()
+            )
+            if not group:
+                return (
+                    json.dumps({"error": "请先创建一个单词卡片分组"}, ensure_ascii=False),
+                    effects,
+                )
             group_id = group.id
         if find_word_in_group(db, user, word_text, group_id):
             return (
@@ -915,7 +989,9 @@ def execute_tool(
         query = db.query(Word).filter(Word.user_id == user.id)
         group_name = arguments.get("group_name")
         if group_name:
-            group = _find_group_by_name(db, user, group_name)
+            group = _find_group_by_name(
+                db, user, group_name, category=GROUP_CATEGORY_WORD
+            )
             if not group:
                 return json.dumps({"error": f"分组「{group_name}」不存在"}, ensure_ascii=False), effects
             query = query.filter(Word.group_id == group.id)
