@@ -1,0 +1,43 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "windows-exe/**"
+      - "backend/**"
+      - "frontend/**"
+    branches:
+      - main
+
+jobs:
+  build-exe:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: windows-exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: windows-exe/workspace/frontend/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: windows-exe/requirements-build.txt
+
+      - name: Build YiKe.exe
+        run: ./build.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YiKe-windows-exe
+          path: windows-exe/output/YiKe.exe
+          retention-days: 14

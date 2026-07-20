@@ -1,0 +1,9 @@
+workspace/
+output/
+build/
+dist/
+.venv/
+assets/ecdict.db
+*.spec.bak
+__pycache__/
+*.pyc

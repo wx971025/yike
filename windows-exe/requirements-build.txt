@@ -1,0 +1,2 @@
+-r workspace/backend/requirements.txt
+pyinstaller==6.11.1
