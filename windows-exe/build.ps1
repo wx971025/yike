@@ -60,3 +60,4 @@ $sizeMb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
 Write-Host ""
 Write-Host "==> 完成: $exe (${sizeMb} MB)"
 Write-Host "    双击即可离线使用核心功能（单词读音需联网；AI 需配置 API）"
+exit 0

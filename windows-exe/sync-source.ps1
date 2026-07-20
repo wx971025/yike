@@ -1,5 +1,7 @@
 # 从上级项目同步源码到 windows-exe/workspace，并打入桌面版补丁。
 $ErrorActionPreference = "Stop"
+# robocopy 成功时 exit code 常为 1~7，不应触发 native command 失败
+$PSNativeCommandUseErrorActionPreference = $false
 
 $PkgDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir = Split-Path -Parent $PkgDir
@@ -33,3 +35,4 @@ if (Test-Path $frontendPatchDir) {
 }
 
 Write-Host "==> 同步完成"
+exit 0
