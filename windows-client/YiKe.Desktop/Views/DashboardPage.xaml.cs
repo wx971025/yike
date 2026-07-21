@@ -1,3 +1,4 @@
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
@@ -45,13 +46,14 @@ public sealed partial class DashboardPage : Page
 
             if ((e.Key == VirtualKey.Enter || e.Key == VirtualKey.Space) && ViewModel.MeaningRevealed)
             {
-                if (KnownButton.IsFocused || e.Key == VirtualKey.Enter)
-                {
-                    ViewModel.RecognizeKnownCommand.Execute(null);
-                }
-                else if (ForgotButton.IsFocused)
+                var focused = FocusManager.GetFocusedElement();
+                if (focused == ForgotButton)
                 {
                     ViewModel.RecognizeForgotCommand.Execute(null);
+                }
+                else
+                {
+                    ViewModel.RecognizeKnownCommand.Execute(null);
                 }
 
                 e.Handled = true;
