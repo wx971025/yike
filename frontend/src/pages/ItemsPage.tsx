@@ -93,8 +93,8 @@ export default function ItemsPage() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const res = await itemApi.list(
         groupFilterIds,
@@ -103,16 +103,16 @@ export default function ItemsPage() {
       );
       setItems(res.data);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, [groupFilterIds, debouncedSearch]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   useEffect(() => {
-    const handler = () => load();
+    const handler = () => void load({ silent: true });
     window.addEventListener("app-data-changed", handler);
     return () => window.removeEventListener("app-data-changed", handler);
   }, [load]);
@@ -154,7 +154,7 @@ export default function ItemsPage() {
         await itemApi.joinPlan(item.id);
       }
       if (targets.length > 0) {
-        await load();
+        await load({ silent: true });
         window.dispatchEvent(new CustomEvent("app-data-changed"));
       }
       exitSelectMode();
@@ -174,7 +174,7 @@ export default function ItemsPage() {
         await itemApi.leavePlan(item.id);
       }
       if (targets.length > 0) {
-        await load();
+        await load({ silent: true });
         window.dispatchEvent(new CustomEvent("app-data-changed"));
       }
       exitSelectMode();
@@ -322,14 +322,18 @@ export default function ItemsPage() {
   };
 
   const handleJoinPlan = async (id: number) => {
-    await itemApi.joinPlan(id);
-    await load();
+    const res = await itemApi.joinPlan(id);
+    setItems((prev) =>
+      prev.map((item) => (item.id === id ? res.data : item))
+    );
     window.dispatchEvent(new CustomEvent("app-data-changed"));
   };
 
   const handleLeavePlan = async (id: number) => {
-    await itemApi.leavePlan(id);
-    await load();
+    const res = await itemApi.leavePlan(id);
+    setItems((prev) =>
+      prev.map((item) => (item.id === id ? res.data : item))
+    );
     window.dispatchEvent(new CustomEvent("app-data-changed"));
   };
 
@@ -341,7 +345,7 @@ export default function ItemsPage() {
         debouncedSearch || undefined
       );
       if (res.data.count > 0) {
-        await load();
+        await load({ silent: true });
         window.dispatchEvent(new CustomEvent("app-data-changed"));
       }
     } finally {
@@ -357,7 +361,7 @@ export default function ItemsPage() {
         debouncedSearch || undefined
       );
       if (res.data.count > 0) {
-        await load();
+        await load({ silent: true });
         window.dispatchEvent(new CustomEvent("app-data-changed"));
       }
     } finally {

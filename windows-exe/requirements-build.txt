@@ -1,3 +1,0 @@
--r workspace/backend/requirements.txt
-pyinstaller==6.11.1
-tzdata>=2024.1

@@ -50,6 +50,35 @@ def is_due(
     return today >= get_due_date(item.learned_at, item.stage_index, memory_mode)
 
 
+def _reschedule_learned_at_after_stage_advance(
+    old_stage: int,
+    new_stage: int,
+    review_date: date,
+    memory_mode: str | None = DEFAULT_MEMORY_MODE,
+) -> date:
+    """按实际复习日重算 learned_at，避免逾期复习后下一轮到期日仍落在过去。"""
+    days = get_review_days(memory_mode)
+    gap = days[new_stage] - days[old_stage]
+    next_due = review_date + timedelta(days=gap)
+    return next_due - timedelta(days=days[new_stage])
+
+
+def repair_learned_at_if_review_still_due(
+    learned_at: date,
+    stage_index: int,
+    last_reviewed_at: date | None,
+    memory_mode: str | None = DEFAULT_MEMORY_MODE,
+) -> date | None:
+    if not last_reviewed_at or stage_index <= 0:
+        return None
+    due = get_due_date(learned_at, stage_index, memory_mode)
+    if due > last_reviewed_at:
+        return None
+    return _reschedule_learned_at_after_stage_advance(
+        stage_index - 1, stage_index, last_reviewed_at, memory_mode
+    )
+
+
 def mark_reviewed(
     item: Item,
     today: date | None = None,
@@ -60,8 +89,12 @@ def mark_reviewed(
     item.skipped_at = None
     last = last_stage_index(memory_mode)
     if item.stage_index < last:
+        old_stage = item.stage_index
         item.stage_index += 1
         item.stage_status = "pending"
+        item.learned_at = _reschedule_learned_at_after_stage_advance(
+            old_stage, item.stage_index, today, memory_mode
+        )
     else:
         item.status = "mastered"
         item.stage_status = "completed"

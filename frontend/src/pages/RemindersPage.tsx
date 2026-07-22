@@ -91,22 +91,22 @@ export default function RemindersPage() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const res = await reminderApi.list(null, debouncedSearch || undefined, groupFilterIds);
       setReminders(res.data);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, [debouncedSearch, groupFilterIds]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   useEffect(() => {
-    const handler = () => load();
+    const handler = () => void load({ silent: true });
     window.addEventListener("app-data-changed", handler);
     return () => window.removeEventListener("app-data-changed", handler);
   }, [load]);
@@ -216,14 +216,18 @@ export default function RemindersPage() {
   };
 
   const handleJoinPlan = async (id: number) => {
-    await reminderApi.joinPlan(id);
-    await load();
+    const res = await reminderApi.joinPlan(id);
+    setReminders((prev) =>
+      prev.map((item) => (item.id === id ? res.data : item))
+    );
     window.dispatchEvent(new CustomEvent("app-data-changed"));
   };
 
   const handleLeavePlan = async (id: number) => {
-    await reminderApi.leavePlan(id);
-    await load();
+    const res = await reminderApi.leavePlan(id);
+    setReminders((prev) =>
+      prev.map((item) => (item.id === id ? res.data : item))
+    );
     window.dispatchEvent(new CustomEvent("app-data-changed"));
   };
 
@@ -231,7 +235,7 @@ export default function RemindersPage() {
     setBulkLoading(true);
     try {
       await reminderApi.joinPlanAll(debouncedSearch || undefined);
-      await load();
+      await load({ silent: true });
       window.dispatchEvent(new CustomEvent("app-data-changed"));
     } finally {
       setBulkLoading(false);
@@ -242,7 +246,7 @@ export default function RemindersPage() {
     setBulkLoading(true);
     try {
       await reminderApi.leavePlanAll(debouncedSearch || undefined);
-      await load();
+      await load({ silent: true });
       window.dispatchEvent(new CustomEvent("app-data-changed"));
     } finally {
       setBulkLoading(false);
@@ -260,7 +264,7 @@ export default function RemindersPage() {
         await reminderApi.joinPlan(item.id);
       }
       if (targets.length > 0) {
-        await load();
+        await load({ silent: true });
         window.dispatchEvent(new CustomEvent("app-data-changed"));
       }
       exitSelectMode();
@@ -280,7 +284,7 @@ export default function RemindersPage() {
         await reminderApi.leavePlan(item.id);
       }
       if (targets.length > 0) {
-        await load();
+        await load({ silent: true });
         window.dispatchEvent(new CustomEvent("app-data-changed"));
       }
       exitSelectMode();

@@ -1,7 +1,7 @@
 from collections import defaultdict
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -26,6 +26,13 @@ from ..services.group_filter import apply_group_ids_filter
 from ..services.memory_schedule import normalize_memory_mode
 from ..services.reminder_schedule import is_reminder_due, upcoming_reminder_dates
 from ..services.review import get_due_date, is_due, resolve_memory_mode, upcoming_due_dates
+from ..services.word_review_track import (
+    WordReviewTrack,
+    get_track_value,
+    is_word_track_due,
+    parse_word_review_track,
+    upcoming_word_track_due_dates,
+)
 
 CONFUSABLE_MEMORY_MODE = normalize_memory_mode(None)
 
@@ -63,21 +70,30 @@ def reviews_today(
 def reviews_today_words(
     group_id: int | None = None,
     group_ids: list[int] | None = Query(None),
+    track: str = Query("spell"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    try:
+        review_track = parse_word_review_track(track)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     today = app_today()
     mode_map = group_memory_mode_map(db, user.id)
-    query = db.query(Word).filter(
-        Word.user_id == user.id, Word.status == "active", Word.in_plan.is_(True)
-    )
+    query = db.query(Word).filter(Word.user_id == user.id, Word.in_plan.is_(True))
     query = apply_group_ids_filter(query, Word.group_id, group_id, group_ids)
 
     result: list[ReviewWordOut] = []
     for word in query.all():
         mode = resolve_memory_mode(word.group_id, mode_map)
-        if is_due(word, today, mode):
-            due = get_due_date(word.learned_at, word.stage_index, mode)
+        track_status = get_track_value(word, review_track, "status")
+        if track_status != "active":
+            continue
+        if is_word_track_due(word, review_track, today, mode):
+            learned_at = get_track_value(word, review_track, "learned_at")
+            stage_index = get_track_value(word, review_track, "stage_index")
+            due = get_due_date(learned_at, stage_index, mode)
             data = WordOut.model_validate(word).model_dump()
             result.append(
                 ReviewWordOut(**data, due_date=due, overdue_days=(today - due).days)
@@ -150,15 +166,30 @@ def reviews_today_completed(
     )
     word_query = apply_group_ids_filter(word_query, Word.group_id, group_id, group_ids)
     for word in word_query.all():
-        items.append(
-            ReviewedTodayItem(
-                id=word.id,
-                title=word.word,
-                group_id=word.group_id,
-                kind="word",
-                stage=_completed_stage(word.stage_index, word.status),
+        if word.spell_last_reviewed_at == today:
+            items.append(
+                ReviewedTodayItem(
+                    id=word.id,
+                    title=word.word,
+                    group_id=word.group_id,
+                    kind="word",
+                    stage=_completed_stage(
+                        word.spell_stage_index, word.spell_status
+                    ),
+                    track="spell",
+                )
             )
-        )
+        if word.rec_last_reviewed_at == today:
+            items.append(
+                ReviewedTodayItem(
+                    id=word.id,
+                    title=word.word,
+                    group_id=word.group_id,
+                    kind="word",
+                    stage=_completed_stage(word.rec_stage_index, word.rec_status),
+                    track="recognize",
+                )
+            )
 
     items.sort(key=lambda x: (x.kind, x.title))
     item_count = sum(1 for x in items if x.kind == "item")
@@ -207,17 +238,24 @@ def calendar(
     word_query = apply_group_ids_filter(word_query, Word.group_id, group_id, group_ids)
     for word in word_query.all():
         mode = resolve_memory_mode(word.group_id, mode_map)
-        for due, stage_index in upcoming_due_dates(word, start, end, mode):
-            by_date[due].append(
-                CalendarEventItem(
-                    id=word.id,
-                    title=word.word,
-                    group_id=word.group_id,
-                    stage=stage_index + 1,
-                    stage_index=stage_index,
-                    kind="word",
+        for review_track, kind_suffix in (
+            (WordReviewTrack.SPELL, "word_spell"),
+            (WordReviewTrack.RECOGNIZE, "word_recognize"),
+        ):
+            for due, stage_index in upcoming_word_track_due_dates(
+                word, review_track, start, end, mode
+            ):
+                label = "拼写" if review_track == WordReviewTrack.SPELL else "认知"
+                by_date[due].append(
+                    CalendarEventItem(
+                        id=word.id,
+                        title=f"{word.word} · {label}",
+                        group_id=word.group_id,
+                        stage=stage_index + 1,
+                        stage_index=stage_index,
+                        kind=kind_suffix,
+                    )
                 )
-            )
 
     reminder_query = db.query(Reminder).filter(
         Reminder.user_id == user.id, Reminder.in_plan.is_(True)

@@ -125,13 +125,13 @@ export default function ConfusablePairsPanel() {
     return () => window.clearTimeout(timer);
   }, [search]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const res = await confusablePairApi.list(null, debouncedSearch || undefined);
       setPairs(res.data);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, [debouncedSearch]);
 
@@ -140,22 +140,20 @@ export default function ConfusablePairsPanel() {
   }, [load]);
 
   useEffect(() => {
-    const handler = () => {
-      void load();
-    };
+    const handler = () => void load({ silent: true });
     window.addEventListener("app-data-changed", handler);
     return () => window.removeEventListener("app-data-changed", handler);
   }, [load]);
 
   const handleJoinPlan = async (id: number) => {
-    await confusablePairApi.joinPlan(id);
-    await load();
+    const res = await confusablePairApi.joinPlan(id);
+    setPairs((prev) => prev.map((pair) => (pair.id === id ? res.data : pair)));
     window.dispatchEvent(new CustomEvent("app-data-changed"));
   };
 
   const handleLeavePlan = async (id: number) => {
-    await confusablePairApi.leavePlan(id);
-    await load();
+    const res = await confusablePairApi.leavePlan(id);
+    setPairs((prev) => prev.map((pair) => (pair.id === id ? res.data : pair)));
     window.dispatchEvent(new CustomEvent("app-data-changed"));
   };
 
@@ -177,7 +175,7 @@ export default function ConfusablePairsPanel() {
     try {
       const res = await confusablePairApi.joinPlanAll(debouncedSearch || undefined);
       if (res.data.count > 0) {
-        await load();
+        await load({ silent: true });
         window.dispatchEvent(new CustomEvent("app-data-changed"));
       }
     } finally {
@@ -190,7 +188,7 @@ export default function ConfusablePairsPanel() {
     try {
       const res = await confusablePairApi.leavePlanAll(debouncedSearch || undefined);
       if (res.data.count > 0) {
-        await load();
+        await load({ silent: true });
         window.dispatchEvent(new CustomEvent("app-data-changed"));
       }
     } finally {

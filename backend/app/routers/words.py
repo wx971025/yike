@@ -20,7 +20,17 @@ from ..services.words import (
     find_word_in_group,
 )
 from ..services.memory_schedule import last_stage_index, normalize_memory_mode
-from ..services.review import learned_at_for_stage, mark_reviewed, reset_to_first_stage, skip_today
+from ..services.review import learned_at_for_stage
+from ..services.word_review_track import (
+    WordReviewTrack,
+    get_track_value,
+    init_both_tracks,
+    mark_word_track_reviewed,
+    parse_word_review_track,
+    reset_word_track,
+    skip_word_track,
+    sync_both_tracks_from_legacy,
+)
 
 router = APIRouter(prefix="/api/words", tags=["words"])
 
@@ -158,6 +168,7 @@ def create_word(
         legacy_example=example,
         legacy_translation=example_translation,
     )
+    sync_both_tracks_from_legacy(word)
     db.add(word)
     db.commit()
     db.refresh(word)
@@ -176,12 +187,7 @@ def join_plan_all(
     today = app_today()
     for word in words:
         word.in_plan = True
-        word.learned_at = today
-        word.stage_index = 0
-        word.stage_status = "pending"
-        word.status = "active"
-        word.last_reviewed_at = None
-        word.skipped_at = None
+        init_both_tracks(word, today)
     db.commit()
     return BulkPlanResult(count=len(words))
 
@@ -273,6 +279,18 @@ def update_word(
         data["skipped_at"] = None
     for field, value in data.items():
         setattr(word, field, value)
+    if any(
+        key in data
+        for key in (
+            "learned_at",
+            "stage_index",
+            "stage_status",
+            "status",
+            "last_reviewed_at",
+            "skipped_at",
+        )
+    ):
+        sync_both_tracks_from_legacy(word)
     db.commit()
     db.refresh(word)
     return word
@@ -292,19 +310,26 @@ def delete_word(
 @router.post("/{word_id}/review", response_model=WordOut)
 def review_word(
     word_id: int,
+    track: str = Query("spell"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    try:
+        review_track = parse_word_review_track(track)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     word = _get_owned_word(word_id, user, db)
     if not word.in_plan:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="该单词未加入复习计划"
         )
-    if word.status == "mastered":
+    if get_track_value(word, review_track, "status") == "mastered":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="该单词已完成全部复习"
         )
-    mark_reviewed(word, memory_mode=_memory_mode_for_group(word.group_id, user, db))
+    mark_word_track_reviewed(
+        word, review_track, memory_mode=_memory_mode_for_group(word.group_id, user, db)
+    )
     db.commit()
     db.refresh(word)
     return word
@@ -313,19 +338,24 @@ def review_word(
 @router.post("/{word_id}/skip", response_model=WordOut)
 def skip_word(
     word_id: int,
+    track: str = Query("spell"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    try:
+        review_track = parse_word_review_track(track)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     word = _get_owned_word(word_id, user, db)
     if not word.in_plan:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="该单词未加入复习计划"
         )
-    if word.status == "mastered":
+    if get_track_value(word, review_track, "status") == "mastered":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="该单词已完成全部复习"
         )
-    skip_today(word)
+    skip_word_track(word, review_track)
     db.commit()
     db.refresh(word)
     return word
@@ -334,19 +364,24 @@ def skip_word(
 @router.post("/{word_id}/reset-stage", response_model=WordOut)
 def reset_word_stage(
     word_id: int,
+    track: str = Query("spell"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    try:
+        review_track = parse_word_review_track(track)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     word = _get_owned_word(word_id, user, db)
     if not word.in_plan:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="该单词未加入复习计划"
         )
-    if word.status == "mastered":
+    if get_track_value(word, review_track, "status") == "mastered":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="该单词已完成全部复习"
         )
-    reset_to_first_stage(word)
+    reset_word_track(word, review_track)
     db.commit()
     db.refresh(word)
     return word
@@ -365,12 +400,7 @@ def join_plan(
         )
     today = app_today()
     word.in_plan = True
-    word.learned_at = today
-    word.stage_index = 0
-    word.stage_status = "pending"
-    word.status = "active"
-    word.last_reviewed_at = None
-    word.skipped_at = None
+    init_both_tracks(word, today)
     db.commit()
     db.refresh(word)
     return word

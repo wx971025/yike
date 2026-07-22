@@ -27,7 +27,8 @@ import { getReviewStageOptions, type Word } from "../types";
 import { filterGroupsByCategory } from "../utils/groupCategory";
 import { ensureGroupsBeforeCreate } from "../utils/groupRequired";
 import { isGroupFilterActive } from "../utils/groupFilter";
-import { getNextReviewDate, getPlanCardStatusMeta } from "../utils/reviewSchedule";
+import { getNextReviewDate, getPlanCardStatus, getPlanCardStatusMeta } from "../utils/reviewSchedule";
+import { wordTrackState } from "../utils/wordReviewTrack";
 import {
   sortByCreatedAt,
   sortByWord,
@@ -249,8 +250,8 @@ export default function WordsPage() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const res = await wordApi.list(
         groupFilterIds,
@@ -259,16 +260,16 @@ export default function WordsPage() {
       );
       setWords(res.data);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, [groupFilterIds, debouncedSearch]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   useEffect(() => {
-    const handler = () => load();
+    const handler = () => void load({ silent: true });
     window.addEventListener("app-data-changed", handler);
     return () => window.removeEventListener("app-data-changed", handler);
   }, [load]);
@@ -310,7 +311,7 @@ export default function WordsPage() {
         await wordApi.joinPlan(word.id);
       }
       if (targets.length > 0) {
-        await load();
+        await load({ silent: true });
         window.dispatchEvent(new CustomEvent("app-data-changed"));
       }
       exitSelectMode();
@@ -330,7 +331,7 @@ export default function WordsPage() {
         await wordApi.leavePlan(word.id);
       }
       if (targets.length > 0) {
-        await load();
+        await load({ silent: true });
         window.dispatchEvent(new CustomEvent("app-data-changed"));
       }
       exitSelectMode();
@@ -617,14 +618,14 @@ export default function WordsPage() {
   };
 
   const handleJoinPlan = async (id: number) => {
-    await wordApi.joinPlan(id);
-    await load();
+    const res = await wordApi.joinPlan(id);
+    setWords((prev) => prev.map((word) => (word.id === id ? res.data : word)));
     window.dispatchEvent(new CustomEvent("app-data-changed"));
   };
 
   const handleLeavePlan = async (id: number) => {
-    await wordApi.leavePlan(id);
-    await load();
+    const res = await wordApi.leavePlan(id);
+    setWords((prev) => prev.map((word) => (word.id === id ? res.data : word)));
     window.dispatchEvent(new CustomEvent("app-data-changed"));
   };
 
@@ -636,7 +637,7 @@ export default function WordsPage() {
         debouncedSearch || undefined
       );
       if (res.data.count > 0) {
-        await load();
+        await load({ silent: true });
         window.dispatchEvent(new CustomEvent("app-data-changed"));
       }
     } finally {
@@ -652,7 +653,7 @@ export default function WordsPage() {
         debouncedSearch || undefined
       );
       if (res.data.count > 0) {
-        await load();
+        await load({ silent: true });
         window.dispatchEvent(new CustomEvent("app-data-changed"));
       }
     } finally {
@@ -815,7 +816,32 @@ export default function WordsPage() {
               </thead>
               <tbody>
                 {sortedWords.map((w, index) => {
-                  const status = getPlanCardStatusMeta(w, undefined, memoryModeForGroupId(w.group_id));
+                  const memoryMode = memoryModeForGroupId(w.group_id);
+                  const spellState = wordTrackState(w, "spell");
+                  const recState = wordTrackState(w, "recognize");
+                  const spellStatusKey = getPlanCardStatus(spellState, undefined, memoryMode);
+                  const recStatusKey = getPlanCardStatus(recState, undefined, memoryMode);
+                  const combinedStatusKey =
+                    spellStatusKey === "due_today" || recStatusKey === "due_today"
+                      ? "due_today"
+                      : spellStatusKey === "reviewed_today" &&
+                          recStatusKey === "reviewed_today"
+                        ? "reviewed_today"
+                        : "upcoming";
+                  const statusMeta = getPlanCardStatusMeta(
+                    spellState,
+                    undefined,
+                    memoryMode
+                  );
+                  const status =
+                    combinedStatusKey === "due_today"
+                      ? { label: "今日未复习", className: "bg-red-100 text-red-700" }
+                      : combinedStatusKey === "reviewed_today"
+                        ? {
+                            label: "今日已复习",
+                            className: "bg-green-100 text-green-700",
+                          }
+                        : statusMeta;
                   return (
                     <tr
                       key={w.id}
@@ -856,7 +882,11 @@ export default function WordsPage() {
                       <td className="px-4 py-3 align-top text-slate-500 dark:text-slate-400">
                         {w.in_plan ? (
                           <div className="text-slate-600 dark:text-slate-300">
-                            下次 {getNextReviewDate(w, memoryModeForGroupId(w.group_id)) ?? "—"}
+                            拼写 下次{" "}
+                            {getNextReviewDate(spellState, memoryMode) ?? "—"}
+                            <br />
+                            认知 下次{" "}
+                            {getNextReviewDate(recState, memoryMode) ?? "—"}
                           </div>
                         ) : (
                           <div className="text-slate-400 dark:text-slate-500">下次 —</div>
@@ -866,7 +896,9 @@ export default function WordsPage() {
                         </div>
                         {w.in_plan && (
                           <div className="mt-0.5 text-xs text-blue-600">
-                            第 {w.stage_index + 1}/{totalStagesForGroupId(w.group_id)} 轮
+                            拼写 第 {spellState.stage_index + 1}/
+                            {totalStagesForGroupId(w.group_id)} 轮 · 认知 第{" "}
+                            {recState.stage_index + 1}/{totalStagesForGroupId(w.group_id)} 轮
                           </div>
                         )}
                       </td>

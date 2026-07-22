@@ -294,6 +294,18 @@ class WordOut(BaseModel):
     in_plan: bool
     last_reviewed_at: date | None
     skipped_at: date | None
+    spell_learned_at: date
+    spell_stage_index: int
+    spell_stage_status: str
+    spell_status: str
+    spell_last_reviewed_at: date | None
+    spell_skipped_at: date | None
+    rec_learned_at: date
+    rec_stage_index: int
+    rec_stage_status: str
+    rec_status: str
+    rec_last_reviewed_at: date | None
+    rec_skipped_at: date | None
     created_at: datetime
     updated_at: datetime
 
@@ -329,6 +341,18 @@ class WordOut(BaseModel):
             "in_plan": data.in_plan,
             "last_reviewed_at": data.last_reviewed_at,
             "skipped_at": data.skipped_at,
+            "spell_learned_at": data.spell_learned_at,
+            "spell_stage_index": data.spell_stage_index,
+            "spell_stage_status": data.spell_stage_status,
+            "spell_status": data.spell_status,
+            "spell_last_reviewed_at": data.spell_last_reviewed_at,
+            "spell_skipped_at": data.spell_skipped_at,
+            "rec_learned_at": data.rec_learned_at,
+            "rec_stage_index": data.rec_stage_index,
+            "rec_stage_status": data.rec_stage_status,
+            "rec_status": data.rec_status,
+            "rec_last_reviewed_at": data.rec_last_reviewed_at,
+            "rec_skipped_at": data.rec_skipped_at,
             "created_at": data.created_at,
             "updated_at": data.updated_at,
         }
@@ -400,6 +424,7 @@ class ReviewedTodayItem(BaseModel):
     group_id: int | None
     kind: str
     stage: int
+    track: str | None = None
 
 
 class ReviewedTodayOut(BaseModel):

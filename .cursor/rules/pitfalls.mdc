@@ -17,6 +17,61 @@ alwaysApply: false
 
 ## 记录
 
+### 2026-07-22 · uvicorn 在 windowed exe 下 `sys.stdout` 为 None 崩溃
+
+- **原因**：`console=False` 打包后 `sys.stdout/stderr` 为 `None`，uvicorn 默认日志的 `ColourizedFormatter.__init__` 调用 `sys.stdout.isatty()` 抛 `AttributeError`，导致 `configure_logging` 失败、后端起不来、健康检查超时、窗口打不开。
+- **解决路线**：`uvicorn.run(..., log_config=None)` 禁用其自带日志；启动最早期 `_ensure_std_streams()` 把 `None` 的 stdout/stderr 替换为带 `isatty/write/flush` 的空流兜底。
+
+### 2026-07-22 · 桌面版 exe 双击打不开（静默崩溃）
+
+- **原因**：`console=False` 时任何未捕获异常都静默退出；pywebview 的 WebView2/pythonnet 原生依赖在 onedir 打包中收集不全，`webview.start(gui="edgechromium")` 直接抛异常导致进程退出，用户看不到任何提示。
+- **解决路线**：`entry.py` 顶层 `try/except` 捕获所有异常，写 `crash.log` 并弹 MessageBox；原生窗口按 edgechromium→cef→mshtml→默认 逐个降级，全失败则用 Edge `--app` 或默认浏览器兜底并阻塞保活；`yike.spec` 用 `collect_all` 收集 `webview`/`clr_loader`/`pythonnet`；`requirements-build.txt` 显式加 `pythonnet`。
+
+### 2026-07-22 · build.ps1 首行 UTF-8 BOM 导致 PowerShell 5.1 把注释当代码
+
+- **原因**：文件带 BOM 时首行 `# ... (PyWebview + ...)` 的 `#` 不被识别为注释，括号内 `PyWebview` 被当作命令；`param` 也不再是脚本首语句而报错。
+- **解决路线**：`param(...)` 必须放在文件第一行；脚本保存为 **UTF-8 无 BOM**、纯 ASCII；注释中避免括号。
+
+### 2026-07-22 · sync-source robocopy exit 16
+
+- **原因**：只拷贝了 `windows-desktop/` 到 `Downloads` 等目录，上级没有同级 `backend/`、`frontend/`，robocopy 找不到源目录返回 16（Serious error）。
+- **解决路线**：在完整仓库内执行 `repo\windows-desktop\build.ps1`；或设置 `$env:YIKE_SOURCE_ROOT` 指向仓库根；或 Linux 预构建后连同 `workspace/` 拷到 Windows 并 `.\build.ps1 -SkipSync`。`sync-source.ps1` 已增加路径检测与明确报错。
+
+### 2026-07-22 · build.ps1 在 Windows PowerShell 5.1 解析失败
+
+- **原因**：`"($sizeMb MB)"` 中 `$()` 子表达式里的 `MB` 被当作 PowerShell 大小单位后缀导致 ParserError；脚本为 UTF-8 无 BOM 时中文乱码还可能破坏字符串引号。
+- **解决路线**：改用 `("{0} ({1} MB)" -f $setup, $sizeMb)` 输出体积；`build.ps1`/`sync-source.ps1` 保存为 UTF-8 BOM，构建日志改用 ASCII 英文避免编码问题。
+
+### 2026-07-22 · Windows 桌面版改用 PyWebview onedir + 词典按需下载
+
+- **原因**：旧 WinUI 单文件方案启动失败多、词典内置导致安装包过大；用户需要双击图标即用、免登录、词典按需下载。
+- **解决路线**：新建 `windows-desktop/`：`PyWebview` 原生窗口 + `PyInstaller onedir` + Inno 递归安装；`patches/` 注入免登录 bootstrap 与词典下载管理页；`dict_setup` 在 `YIKE_DESKTOP=1` 时禁止自动后台下载；CI 工作流 `build-windows-desktop.yml`。
+
+### 2026-07-22 · 安装后 YiKe 打不开
+
+- **原因**：`PublishSingleFile` 的 WinUI 程序在部分环境静默失败；`OnLaunched` 里 await 后端失败无 UI 提示；PyInstaller 后端首次解压超过 60s 超时；安装包只复制了单个 `YiKe.exe` 缺少 WinUI 依赖 DLL。
+- **解决路线**：改为多文件 publish + Inno 递归安装 `stage/*`；增加 StartupPage 与 `%LOCALAPPDATA%\YiKe\logs\` 后端日志；启动超时改为 3 分钟。
+
+### 2026-07-22 · Inno Setup CI 缺少 ChineseSimplified.isl
+
+- **原因**：GitHub `windows-latest` 自带的 Inno Setup 6 未包含 `Languages\ChineseSimplified.isl`，`yike.iss` 指定简体中文语言包会直接编译失败。
+- **解决路线**：安装脚本改用 `compiler:Default.isl`（英文向导）；应用名、开始菜单项等自定义字符串仍可写中文。
+
+### 2026-07-21 · WinUI PublishSingleFile 要求 EnableMsixTooling
+
+- **原因**：Windows App SDK 1.6 在 `PublishSingleFile=true` 时需要生成 embedded `resources.pri`，`EnableMsixTooling=false` 会直接报错。
+- **解决路线**：`YiKe.Desktop.csproj` 设 `EnableMsixTooling=true`，同时保持 `WindowsPackageType=None`（仍是免 MSIX 安装的 unpackaged exe）。
+
+### 2026-07-21 · Windows 原生客户端只能在 Windows 上完整构建
+
+- **原因**：WinUI 3 + PyInstaller 打包依赖 Windows SDK / VS 2022；Linux 开发机只能 `sync-source` 与维护源码，无法本地产出 `YiKe.exe` / `YiKeSetup.exe`。
+- **解决路线**：在 `windows-client/` 维护源码与 `build.ps1`；用 GitHub Actions `build-windows-client.yml`（`windows-latest`）产出 artifact；实体机构建需安装 Python 3.11、.NET 8 SDK、Windows App SDK、Inno Setup 6。
+
+### 2026-07-21 · 逾期复习后单词立刻又出现在待复习
+
+- **原因**：`mark_reviewed` 只推进 `stage_index`，未按实际复习日重算 `learned_at`；下一轮到期日 `learned_at + days[stage]` 仍落在过去，复习完当天 `is_due` 仍为 true。双轨上线后，拼写复习完还会看到认知轨待复习（设计如此，但叠加上述 bug 更像「又出来一遍」）。
+- **解决路线**：复习推进轮次时用「复习日 + 阶段间隔差」重算 `learned_at`；一次性迁移 `fix_late_review_schedule_v1` 修复历史数据。
+
 ### 2026-07-14 · 单词复习切换时整页闪一下
 
 - **原因**：`app-data-changed` 触发 Dashboard `load()` 时 `setLoading(true)`，待复习区短暂变成「加载中…」；同时 `words` 更新会重新 `orderWords` 乱序洗牌，进度条与控制栏跟着重绘。

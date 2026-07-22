@@ -136,6 +136,18 @@ class Word(Base):
     in_plan: Mapped[bool] = mapped_column(Boolean, default=False)
     last_reviewed_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     skipped_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    spell_learned_at: Mapped[date] = mapped_column(Date, default=date.today)
+    spell_stage_index: Mapped[int] = mapped_column(Integer, default=0)
+    spell_stage_status: Mapped[str] = mapped_column(String(16), default="pending")
+    spell_status: Mapped[str] = mapped_column(String(16), default="active")
+    spell_last_reviewed_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    spell_skipped_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    rec_learned_at: Mapped[date] = mapped_column(Date, default=date.today)
+    rec_stage_index: Mapped[int] = mapped_column(Integer, default=0)
+    rec_stage_status: Mapped[str] = mapped_column(String(16), default="pending")
+    rec_status: Mapped[str] = mapped_column(String(16), default="active")
+    rec_last_reviewed_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    rec_skipped_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow

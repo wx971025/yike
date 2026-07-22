@@ -1,0 +1,8 @@
+.venv/
+workspace/
+output/
+build/
+__pycache__/
+*.pyc
+*.pyo
+*.spec.bak

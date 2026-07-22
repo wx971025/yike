@@ -92,6 +92,18 @@ export interface Word {
   in_plan: boolean;
   last_reviewed_at: string | null;
   skipped_at: string | null;
+  spell_learned_at: string;
+  spell_stage_index: number;
+  spell_stage_status: string;
+  spell_status: string;
+  spell_last_reviewed_at: string | null;
+  spell_skipped_at: string | null;
+  rec_learned_at: string;
+  rec_stage_index: number;
+  rec_stage_status: string;
+  rec_status: string;
+  rec_last_reviewed_at: string | null;
+  rec_skipped_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -157,7 +169,7 @@ export interface CalendarEventItem {
   group_id: number | null;
   stage: number;
   stage_index: number;
-  kind: "item" | "word" | "reminder" | "confusable_pair";
+  kind: "item" | "word" | "word_spell" | "word_recognize" | "reminder" | "confusable_pair";
 }
 
 export interface CalendarDay {
@@ -171,6 +183,7 @@ export interface ReviewedTodayItem {
   group_id: number | null;
   kind: "item" | "word";
   stage: number;
+  track?: "spell" | "recognize" | null;
 }
 
 export interface ReviewedTodayResponse {

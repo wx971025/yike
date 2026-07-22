@@ -109,15 +109,17 @@ function LayoutShell() {
 
   const loadDueCount = useCallback(async () => {
     try {
-      const [cards, words, confusable, reminders] = await Promise.all([
+      const [cards, spellWords, recognizeWords, confusable, reminders] = await Promise.all([
         reviewApi.today(),
-        reviewApi.todayWords(),
+        reviewApi.todayWords(undefined, "spell"),
+        reviewApi.todayWords(undefined, "recognize"),
         reviewApi.todayConfusablePairs(),
         reminderApi.today(),
       ]);
       setDueCount(
         cards.data.length +
-          words.data.length +
+          spellWords.data.length +
+          recognizeWords.data.length +
           confusable.data.length +
           reminders.data.length
       );

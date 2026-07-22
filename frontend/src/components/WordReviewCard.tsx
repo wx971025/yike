@@ -5,6 +5,10 @@ import type { ReviewWord } from "../types";
 import { useGroups } from "../context/GroupContext";
 import { useWordReviewUi } from "../context/WordReviewUiContext";
 import {
+  type WordReviewTrack,
+  wordTrackState,
+} from "../utils/wordReviewTrack";
+import {
   playWordPronunciation,
   playWordPronunciationRepeated,
   stopWordPronunciation,
@@ -33,19 +37,27 @@ import { todayStr } from "../utils/reviewSchedule";
 interface WordReviewCardProps {
   word: ReviewWord;
   groupId: number | null;
-  currentIndex: number;
-  totalCount: number;
+  track: WordReviewTrack;
+  mode: ReviewPhase;
+  progressStep: number;
+  progressTotal: number;
   wordOrderMode?: "shuffle" | "created_at";
   onToggleWordOrder?: () => void;
-  onReviewed: (id: number) => void;
+  onSpellComplete: (id: number, wasPeeked: boolean) => void;
+  onRecognizeKnown: (id: number) => void;
+  onRecognizeForgot: (id: number) => void;
   onSkip: (id: number) => void;
-  onDefer: (id: number) => void;
   onPeekAnswer: (id: number) => void;
   onWordUpdated?: (word: ReviewWord) => void;
 }
 
+type ReviewPhase = "spell" | "recognize";
+
 const MIN_LINE_CHARS = 6;
 const FADE_MS = 280;
+
+const recognizeActionButtonClass =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
 
 function isConfirmKey(key: string): boolean {
   return key === "Enter" || key === " ";
@@ -127,13 +139,16 @@ function ShortcutHints() {
 export default function WordReviewCard({
   word,
   groupId,
-  currentIndex,
-  totalCount,
+  track,
+  mode,
+  progressStep,
+  progressTotal,
   wordOrderMode = "shuffle",
   onToggleWordOrder,
-  onReviewed,
+  onSpellComplete,
+  onRecognizeKnown,
+  onRecognizeForgot,
   onSkip,
-  onDefer,
   onPeekAnswer,
   onWordUpdated,
 }: WordReviewCardProps) {
@@ -147,6 +162,8 @@ export default function WordReviewCard({
     autoConfusablePromptEnabled,
   } = useWordReviewUi();
   const totalStages = totalStagesForGroupId(word.group_id);
+  const [meaningRevealed, setMeaningRevealed] = useState(false);
+  const [spellWasPeeked, setSpellWasPeeked] = useState(false);
   const [input, setInput] = useState("");
   const [wrongCount, setWrongCount] = useState(0);
   const [hasError, setHasError] = useState(false);
@@ -165,16 +182,22 @@ export default function WordReviewCard({
   const inputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const nextButtonRef = useRef<HTMLButtonElement>(null);
+  const recognizeRevealRef = useRef<HTMLButtonElement>(null);
+  const recognizeForgotRef = useRef<HTMLButtonElement>(null);
+  const recognizeSkipRef = useRef<HTMLButtonElement>(null);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const peekResetDoneRef = useRef(false);
   const confusablePromptedRef = useRef<Set<string>>(new Set());
 
   const resetCardState = () => {
+    setMeaningRevealed(false);
+    setSpellWasPeeked(false);
     setInput("");
     setWrongCount(0);
     setHasError(false);
     setIsCorrect(false);
     setRevealedAnswer(false);
+    setShowPhonetic(false);
     setConfusablePrompt(null);
     confusablePromptedRef.current = new Set();
     setGenerateExampleError("");
@@ -253,7 +276,7 @@ export default function WordReviewCard({
     setIsPlayingPronunciation(false);
     fadeIn();
     return clearFadeTimer;
-  }, [word.id]);
+  }, [word.id, mode]);
 
   const handlePlayPronunciation = useCallback(async () => {
     setIsPlayingPronunciation(true);
@@ -277,9 +300,20 @@ export default function WordReviewCard({
     }, FADE_MS);
   };
 
-  const peeked = revealedAnswer || wrongCount >= 3;
+  const peeked = mode === "spell" && (revealedAnswer || wrongCount >= 3);
+
+  useEffect(() => {
+    if (peeked) setSpellWasPeeked(true);
+  }, [peeked]);
+
+  const phaseLabel = mode === "spell" ? "拼写" : "识义";
+  const progressPercent =
+    progressTotal > 0
+      ? Math.min(100, (progressStep / progressTotal) * 100)
+      : 0;
 
   const reviewMeta = useMemo(() => {
+    const trackState = wordTrackState(word, track);
     if (peeked) {
       const today = todayStr();
       return {
@@ -289,11 +323,11 @@ export default function WordReviewCard({
       };
     }
     return {
-      stageIndex: word.stage_index,
+      stageIndex: trackState.stage_index,
       dueDate: word.due_date,
       overdueDays: word.overdue_days,
     };
-  }, [peeked, word.stage_index, word.due_date, word.overdue_days]);
+  }, [peeked, track, word]);
 
   useEffect(() => {
     if (!peeked || peekResetDoneRef.current || isTransitioning) return;
@@ -303,24 +337,127 @@ export default function WordReviewCard({
 
   const advanceAfterCorrect = useCallback(
     (_key: string) => {
-      if (isTransitioning || !isCorrect) return;
+      if (isTransitioning) return;
+
+      if (mode === "spell") {
+        if (!isCorrect) return;
+        stopWordPronunciation();
+        setIsPlayingPronunciation(false);
+        transitionToNext(() => onSpellComplete(word.id, spellWasPeeked));
+        return;
+      }
+
+      if (!meaningRevealed) return;
       stopWordPronunciation();
       setIsPlayingPronunciation(false);
-      if (peeked) {
-        transitionToNext(() => onDefer(word.id));
-      } else {
-        transitionToNext(() => onReviewed(word.id));
-      }
+      transitionToNext(() => onRecognizeKnown(word.id));
     },
-    [isCorrect, isTransitioning, peeked, word.id, onDefer, onReviewed]
+    [
+      isCorrect,
+      isTransitioning,
+      meaningRevealed,
+      mode,
+      spellWasPeeked,
+      word.id,
+      onSpellComplete,
+      onRecognizeKnown,
+    ]
   );
 
+  const handleRecognizeForgot = useCallback(() => {
+    if (isTransitioning || !meaningRevealed) return;
+    stopWordPronunciation();
+    setIsPlayingPronunciation(false);
+    transitionToNext(() => onRecognizeForgot(word.id));
+  }, [isTransitioning, meaningRevealed, word.id, onRecognizeForgot]);
+
+  const getRecognizeActionButtons = useCallback((): HTMLButtonElement[] => {
+    if (meaningRevealed) {
+      return [nextButtonRef, recognizeForgotRef, recognizeSkipRef]
+        .map((ref) => ref.current)
+        .filter((el): el is HTMLButtonElement => el != null && !el.disabled);
+    }
+    return [recognizeRevealRef, recognizeSkipRef]
+      .map((ref) => ref.current)
+      .filter((el): el is HTMLButtonElement => el != null && !el.disabled);
+  }, [meaningRevealed]);
+
+  const moveRecognizeActionFocus = useCallback(
+    (direction: -1 | 1) => {
+      const buttons = getRecognizeActionButtons();
+      if (buttons.length === 0) return;
+      const active = document.activeElement;
+      let index = buttons.findIndex((el) => el === active);
+      if (index < 0) {
+        buttons[0].focus();
+        return;
+      }
+      index = (index + direction + buttons.length) % buttons.length;
+      buttons[index].focus();
+    },
+    [getRecognizeActionButtons]
+  );
+
+  const handleRevealMeaning = useCallback(() => {
+    setMeaningRevealed(true);
+    if (autoPronunciationEnabled) {
+      setIsPlayingPronunciation(true);
+      void playWordPronunciationRepeated(
+        word.word,
+        autoPronunciationRepeat,
+        pronunciationAccent
+      ).finally(() => setIsPlayingPronunciation(false));
+    }
+  }, [
+    autoPronunciationEnabled,
+    autoPronunciationRepeat,
+    pronunciationAccent,
+    word.word,
+  ]);
+
+  const handleSkip = useCallback(() => {
+    stopWordPronunciation();
+    setIsPlayingPronunciation(false);
+    transitionToNext(() => onSkip(word.id));
+  }, [word.id, onSkip]);
+
+  const activateFocusedRecognizeAction = useCallback(() => {
+    const active = document.activeElement;
+    if (active === recognizeForgotRef.current) {
+      handleRecognizeForgot();
+      return;
+    }
+    if (active === recognizeSkipRef.current) {
+      handleSkip();
+      return;
+    }
+    if (!meaningRevealed) {
+      handleRevealMeaning();
+      return;
+    }
+    advanceAfterCorrect("Enter");
+  }, [
+    meaningRevealed,
+    handleRecognizeForgot,
+    handleRevealMeaning,
+    handleSkip,
+    advanceAfterCorrect,
+  ]);
+
   useEffect(() => {
-    if (isCorrect) void warmUpKeyboardSounds();
-  }, [isCorrect]);
+    if (isCorrect && mode === "spell") void warmUpKeyboardSounds();
+  }, [isCorrect, mode]);
 
   useEffect(() => {
     if (isTransitioning || createConfusableOpen || editModalOpen || confusablePrompt) return;
+    if (mode === "recognize") {
+      if (meaningRevealed) {
+        nextButtonRef.current?.focus();
+      } else {
+        recognizeRevealRef.current?.focus();
+      }
+      return;
+    }
     if (isCorrect) {
       nextButtonRef.current?.focus();
     } else {
@@ -328,6 +465,8 @@ export default function WordReviewCard({
     }
   }, [
     word.id,
+    mode,
+    meaningRevealed,
     isCorrect,
     isTransitioning,
     visible,
@@ -337,10 +476,31 @@ export default function WordReviewCard({
   ]);
 
   useEffect(() => {
-    if (!isCorrect || isTransitioning || createConfusableOpen || editModalOpen || confusablePrompt) return;
+    if (isTransitioning || createConfusableOpen || editModalOpen || confusablePrompt) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (mode === "recognize") {
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          e.preventDefault();
+          moveRecognizeActionFocus(e.key === "ArrowLeft" ? -1 : 1);
+          return;
+        }
+        if (meaningRevealed && e.key === "Backspace") {
+          e.preventDefault();
+          handleRecognizeForgot();
+          return;
+        }
+        if (!isConfirmKey(e.key) || e.repeat) return;
+        e.preventDefault();
+        activateFocusedRecognizeAction();
+        return;
+      }
+
       if (!isConfirmKey(e.key) || e.repeat) return;
+
+      const canAdvance = isCorrect;
+      if (!canAdvance) return;
+
       e.preventDefault();
       advanceAfterCorrect(e.key);
     };
@@ -348,12 +508,17 @@ export default function WordReviewCard({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
+    mode,
+    meaningRevealed,
     isCorrect,
     isTransitioning,
     advanceAfterCorrect,
     createConfusableOpen,
     editModalOpen,
     confusablePrompt,
+    handleRecognizeForgot,
+    moveRecognizeActionFocus,
+    activateFocusedRecognizeAction,
   ]);
 
   useEffect(() => {
@@ -363,7 +528,7 @@ export default function WordReviewCard({
 
       if (e.key === ";" || e.key === ":") {
         e.preventDefault();
-        if (!isCorrect && !isTransitioning) setRevealedAnswer(true);
+        if (mode === "spell" && !isCorrect && !isTransitioning) setRevealedAnswer(true);
         return;
       }
 
@@ -388,7 +553,12 @@ export default function WordReviewCard({
 
       if (key === "e") {
         e.preventDefault();
-        if (!isTransitioning && exampleCount === 0 && !generatingExample) {
+        if (
+          mode === "spell" &&
+          !isTransitioning &&
+          exampleCount === 0 &&
+          !generatingExample
+        ) {
           void handleGenerateExample();
         }
       }
@@ -412,7 +582,7 @@ export default function WordReviewCard({
   ]);
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (isCorrect || isTransitioning) return;
+    if (mode !== "spell" || isCorrect || isTransitioning) return;
 
     if (isConfirmKey(e.key)) {
       if (e.key === " ") {
@@ -444,7 +614,7 @@ export default function WordReviewCard({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isCorrect) return;
+    if (mode !== "spell" || isCorrect) return;
 
     const answer = input.trim();
     if (!answer) return;
@@ -495,17 +665,12 @@ export default function WordReviewCard({
     if (!isConfirmKey(e.key) || e.repeat) return;
     e.preventDefault();
     e.stopPropagation();
+    if (mode === "recognize") {
+      activateFocusedRecognizeAction();
+      return;
+    }
     advanceAfterCorrect(e.key);
   };
-
-  const handleSkip = () => {
-    stopWordPronunciation();
-    setIsPlayingPronunciation(false);
-    transitionToNext(() => onSkip(word.id));
-  };
-
-  const progressPercent =
-    totalCount > 0 ? Math.min(100, ((currentIndex + 1) / totalCount) * 100) : 0;
 
   return (
     <div
@@ -517,17 +682,19 @@ export default function WordReviewCard({
     >
       <div className="shrink-0 px-2 pt-1 sm:px-4">
         <div className="mb-1 flex items-center justify-between text-xs text-slate-400 dark:text-slate-500">
-          <span>复习进度</span>
+          <span>
+            复习进度 · {phaseLabel}
+          </span>
           <span className="tabular-nums">
-            {currentIndex + 1} / {totalCount}
+            {progressStep} / {progressTotal}
           </span>
         </div>
         <div
           className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-700/80"
           role="progressbar"
-          aria-valuenow={currentIndex + 1}
-          aria-valuemin={1}
-          aria-valuemax={totalCount}
+          aria-valuenow={progressStep}
+          aria-valuemin={0}
+          aria-valuemax={progressTotal}
           aria-label="单词复习进度"
         >
           <div
@@ -576,7 +743,7 @@ export default function WordReviewCard({
               {wordOrderMode === "shuffle" ? "乱序" : "顺序"}
             </button>
           )}
-          {word.phonetic && (
+          {mode === "spell" && word.phonetic && (
             <button
               type="button"
               onClick={() => setShowPhonetic((value) => !value)}
@@ -589,7 +756,7 @@ export default function WordReviewCard({
               {showPhonetic ? "隐藏音标" : "显示音标"}
             </button>
           )}
-          {exampleCount === 0 && (
+          {mode === "spell" && exampleCount === 0 && (
             <button
               type="button"
               onClick={() => void handleGenerateExample()}
@@ -659,6 +826,15 @@ export default function WordReviewCard({
       >
         <div className="flex min-h-0 flex-1 flex-col items-center justify-start px-4 pb-2 pt-2 sm:px-6">
           <div className="mb-3 flex flex-wrap items-center justify-center gap-2 text-xs">
+            <span
+              className={`rounded px-2 py-0.5 ${
+                mode === "spell"
+                  ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+                  : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+              }`}
+            >
+              {mode === "spell" ? "看释义 · 拼英文" : "看英文 · 识释义"}
+            </span>
             <span className="rounded bg-blue-50 px-2 py-0.5 text-blue-600">
               第 {reviewMeta.stageIndex + 1}/{totalStages} 轮
             </span>
@@ -672,111 +848,212 @@ export default function WordReviewCard({
             )}
           </div>
 
-          <div
-            className={`max-w-3xl text-center ${reviewExample ? "mb-3" : "mb-5"}`}
-          >
-            <p className="text-2xl font-semibold leading-relaxed text-slate-800 dark:text-slate-100">
-              {word.meaning}
-            </p>
-            {word.phonetic && showPhonetic && (
-              <p className="mt-2 text-base text-slate-500 dark:text-slate-400">
-                {word.phonetic}
-              </p>
-            )}
-            {exampleCount === 0 && generateExampleError && (
-              <p className="mt-2 text-xs text-red-500">{generateExampleError}</p>
-            )}
-          </div>
+          {mode === "spell" ? (
+            <>
+              <div
+                className={`max-w-3xl text-center ${reviewExample ? "mb-3" : "mb-5"}`}
+              >
+                <p className="text-2xl font-semibold leading-relaxed text-slate-800 dark:text-slate-100">
+                  {word.meaning}
+                </p>
+                {word.phonetic && showPhonetic && (
+                  <p className="mt-2 text-base text-slate-500 dark:text-slate-400">
+                    {word.phonetic}
+                  </p>
+                )}
+                {exampleCount === 0 && generateExampleError && (
+                  <p className="mt-2 text-xs text-red-500">{generateExampleError}</p>
+                )}
+              </div>
 
-          {reviewExample && (
-            <ReviewExampleSentence
-              example={reviewExample}
-              word={word.word}
-              showFull={isCorrect}
-            />
-          )}
-
-          {(wrongCount >= 3 || revealedAnswer) && !isCorrect && (
-            <p className="mb-5 rounded-lg bg-amber-50 px-4 py-2 text-center text-sm font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-              {word.word}
-              {word.phonetic && (
-                <span className="ml-2 font-normal text-amber-700 dark:text-amber-300">
-                  {word.phonetic}
-                </span>
+              {reviewExample && (
+                <ReviewExampleSentence
+                  example={reviewExample}
+                  word={word.word}
+                  showFull={isCorrect}
+                />
               )}
-            </p>
-          )}
 
-          {isCorrect ? (
-            <div className={`text-center ${reviewExample ? "mt-1" : ""}`}>
-              <p className="mb-2 text-sm font-medium text-green-700 dark:text-green-400">
-                回答正确
-              </p>
-              <p className="text-3xl font-semibold text-green-800 dark:text-green-300">
-                {word.word}
-              </p>
-              {word.phonetic && (
-                <p className="mt-2 text-base text-green-700 dark:text-green-400">
-                  {word.phonetic}
+              {(wrongCount >= 3 || revealedAnswer) && !isCorrect && (
+                <p className="mb-5 rounded-lg bg-amber-50 px-4 py-2 text-center text-sm font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                  {word.word}
+                  {word.phonetic && (
+                    <span className="ml-2 font-normal text-amber-700 dark:text-amber-300">
+                      {word.phonetic}
+                    </span>
+                  )}
                 </p>
               )}
-            </div>
+
+              {isCorrect ? (
+                <div className={`text-center ${reviewExample ? "mt-1" : ""}`}>
+                  <p className="mb-2 text-sm font-medium text-green-700 dark:text-green-400">
+                    回答正确
+                  </p>
+                  <p className="text-3xl font-semibold text-green-800 dark:text-green-300">
+                    {word.word}
+                  </p>
+                  {word.phonetic && (
+                    <p className="mt-2 text-base text-green-700 dark:text-green-400">
+                      {word.phonetic}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className={`w-full max-w-2xl ${reviewExample ? "mt-1" : ""}`}>
+                  <UnderlineInput
+                    value={input}
+                    onChange={(value) => {
+                      setInput(value);
+                      if (hasError) setHasError(false);
+                    }}
+                    onKeyDown={handleInputKeyDown}
+                    hasError={hasError}
+                    inputRef={inputRef}
+                    placeholder={
+                      peeked
+                        ? "对照答案输入单词，回车或空格确认"
+                        : "根据释义输入单词，回车或空格确认"
+                    }
+                  />
+                  {hasError && (
+                    <p className="mt-4 text-center text-sm text-red-600">
+                      拼写不正确，请再试一次
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="mt-5 flex justify-center gap-3">
+                {isCorrect ? (
+                  <button
+                    ref={nextButtonRef}
+                    type="button"
+                    onClick={goNext}
+                    onKeyDown={handleNextButtonKeyDown}
+                    disabled={isTransitioning}
+                    className="min-w-[8rem] rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    下一个
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={!input.trim() || isTransitioning}
+                    onClick={() => void playEnterSound()}
+                    className="min-w-[8rem] rounded-lg bg-green-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-green-700 disabled:opacity-50"
+                  >
+                    确认
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSkip}
+                  disabled={isTransitioning}
+                  className="rounded-lg border border-slate-200/80 px-6 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100/60 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/40"
+                >
+                  跳过
+                </button>
+              </div>
+            </>
           ) : (
-            <div className={`w-full max-w-2xl ${reviewExample ? "mt-1" : ""}`}>
-              <UnderlineInput
-                value={input}
-                onChange={(value) => {
-                  setInput(value);
-                  if (hasError) setHasError(false);
-                }}
-                onKeyDown={handleInputKeyDown}
-                hasError={hasError}
-                inputRef={inputRef}
-                placeholder={
-                  peeked
-                    ? "对照答案输入单词，回车或空格确认"
-                    : "根据释义输入单词，回车或空格确认"
-                }
-              />
-              {hasError && (
-                <p className="mt-4 text-center text-sm text-red-600">
-                  拼写不正确，请再试一次
+            <>
+              <div className="mb-5 max-w-3xl text-center">
+                <p className="text-4xl font-semibold tracking-wide text-slate-800 dark:text-slate-100">
+                  {word.word}
                 </p>
-              )}
-            </div>
-          )}
+                {!meaningRevealed && (
+                  <p className="mt-4 text-sm text-slate-400 dark:text-slate-500">
+                    先回忆中文释义，按回车或空格显示 · ← → 切换按钮
+                  </p>
+                )}
+              </div>
 
-          <div className="mt-5 flex justify-center gap-3">
-            {isCorrect ? (
-              <button
-                ref={nextButtonRef}
-                type="button"
-                onClick={goNext}
-                onKeyDown={handleNextButtonKeyDown}
-                disabled={isTransitioning}
-                className="min-w-[8rem] rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
-              >
-                下一个
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!input.trim() || isTransitioning}
-                onClick={() => void playEnterSound()}
-                className="min-w-[8rem] rounded-lg bg-green-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-green-700 disabled:opacity-50"
-              >
-                确认
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleSkip}
-              disabled={isTransitioning}
-              className="rounded-lg border border-slate-200/80 px-6 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100/60 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/40"
-            >
-              跳过
-            </button>
-          </div>
+              {meaningRevealed ? (
+                <>
+                  <div className="mb-4 max-w-3xl text-center">
+                    <p className="text-2xl font-semibold leading-relaxed text-emerald-800 dark:text-emerald-300">
+                      {word.meaning}
+                    </p>
+                    {word.phonetic && (
+                      <p className="mt-2 text-base text-slate-500 dark:text-slate-400">
+                        {word.phonetic}
+                      </p>
+                    )}
+                    {word.pos && (
+                      <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                        {word.pos}
+                      </p>
+                    )}
+                  </div>
+
+                  {reviewExample && (
+                    <ReviewExampleSentence
+                      example={reviewExample}
+                      word={word.word}
+                      showFull
+                      className="mb-5 max-w-3xl text-center"
+                    />
+                  )}
+
+                  <p className="mb-3 text-center text-xs text-slate-400 dark:text-slate-500">
+                    ← → 切换按钮 · 回车或空格确认 · Backspace 忘记
+                  </p>
+                  <div className="mt-2 flex justify-center gap-3">
+                    <button
+                      ref={nextButtonRef}
+                      type="button"
+                      onClick={goNext}
+                      onKeyDown={handleNextButtonKeyDown}
+                      disabled={isTransitioning}
+                      className={`min-w-[8rem] rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50 ${recognizeActionButtonClass} focus-visible:ring-emerald-300`}
+                    >
+                      熟知
+                    </button>
+                    <button
+                      ref={recognizeForgotRef}
+                      type="button"
+                      onClick={handleRecognizeForgot}
+                      disabled={isTransitioning}
+                      className={`min-w-[8rem] rounded-lg bg-amber-500 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-amber-600 disabled:opacity-50 ${recognizeActionButtonClass} focus-visible:ring-amber-300`}
+                    >
+                      忘记
+                    </button>
+                    <button
+                      ref={recognizeSkipRef}
+                      type="button"
+                      onClick={handleSkip}
+                      disabled={isTransitioning}
+                      className={`rounded-lg border border-slate-200/80 px-6 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100/60 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/40 ${recognizeActionButtonClass} focus-visible:ring-slate-400`}
+                    >
+                      跳过
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="mt-5 flex justify-center gap-3">
+                  <button
+                    ref={recognizeRevealRef}
+                    type="button"
+                    onClick={handleRevealMeaning}
+                    disabled={isTransitioning}
+                    className={`min-w-[8rem] rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50 ${recognizeActionButtonClass} focus-visible:ring-emerald-300`}
+                  >
+                    显示释义
+                  </button>
+                  <button
+                    ref={recognizeSkipRef}
+                    type="button"
+                    onClick={handleSkip}
+                    disabled={isTransitioning}
+                    className={`rounded-lg border border-slate-200/80 px-6 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100/60 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/40 ${recognizeActionButtonClass} focus-visible:ring-slate-400`}
+                  >
+                    跳过
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </form>
       </div>

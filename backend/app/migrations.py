@@ -683,3 +683,156 @@ def migrate_reminder_group_schedule_mode_v1() -> None:
                 "('reminder_group_schedule_mode_v1', '1')"
             )
         )
+
+
+def migrate_word_dual_track_v1() -> None:
+    """为单词添加拼写/认知双轨复习字段。"""
+    track_columns = (
+        "spell_learned_at",
+        "spell_stage_index",
+        "spell_stage_status",
+        "spell_status",
+        "spell_last_reviewed_at",
+        "spell_skipped_at",
+        "rec_learned_at",
+        "rec_stage_index",
+        "rec_stage_status",
+        "rec_status",
+        "rec_last_reviewed_at",
+        "rec_skipped_at",
+    )
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text("SELECT value FROM schema_meta WHERE key = 'word_dual_track_v1'")
+        ).fetchone()
+        if done:
+            return
+        existing = conn.execute(text("PRAGMA table_info(words)")).fetchall()
+        names = {row[1] for row in existing}
+        for column in track_columns:
+            if column not in names:
+                if column.endswith("_at"):
+                    conn.execute(
+                        text(f"ALTER TABLE words ADD COLUMN {column} DATE")
+                    )
+                elif column.endswith("_index"):
+                    conn.execute(
+                        text(f"ALTER TABLE words ADD COLUMN {column} INTEGER DEFAULT 0")
+                    )
+                elif column.endswith("_status"):
+                    default = "pending" if "stage" in column else "active"
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE words ADD COLUMN {column} VARCHAR(16) "
+                            f"DEFAULT '{default}'"
+                        )
+                    )
+        conn.execute(
+            text(
+                """
+                UPDATE words SET
+                    spell_learned_at = COALESCE(spell_learned_at, learned_at),
+                    spell_stage_index = COALESCE(spell_stage_index, stage_index),
+                    spell_stage_status = COALESCE(spell_stage_status, stage_status),
+                    spell_status = COALESCE(spell_status, status),
+                    spell_last_reviewed_at = spell_last_reviewed_at,
+                    spell_skipped_at = spell_skipped_at,
+                    rec_learned_at = COALESCE(rec_learned_at, learned_at),
+                    rec_stage_index = COALESCE(rec_stage_index, stage_index),
+                    rec_stage_status = COALESCE(rec_stage_status, stage_status),
+                    rec_status = COALESCE(rec_status, status),
+                    rec_last_reviewed_at = rec_last_reviewed_at,
+                    rec_skipped_at = rec_skipped_at
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES "
+                "('word_dual_track_v1', '1')"
+            )
+        )
+
+
+def migrate_fix_late_review_schedule_v1() -> None:
+    """修复逾期复习后轮次已推进但 learned_at 未重算导致仍显示待复习的数据。"""
+    from sqlalchemy.orm import sessionmaker
+
+    from .models import ConfusablePair, Item, Word
+    from .services.group_context import group_memory_mode_map
+    from .services.review import repair_learned_at_if_review_still_due, resolve_memory_mode
+    from .services.word_review_track import (
+        WordReviewTrack,
+        get_track_value,
+        set_track_value,
+        sync_legacy_from_spell,
+    )
+
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text("SELECT value FROM schema_meta WHERE key = 'fix_late_review_schedule_v1'")
+        ).fetchone()
+        if done:
+            return
+
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    try:
+        mode_maps: dict[int, dict[int, str]] = {}
+        fixed = 0
+
+        def memory_mode_for(user_id: int, group_id: int | None) -> str:
+            if user_id not in mode_maps:
+                mode_maps[user_id] = group_memory_mode_map(db, user_id)
+            return resolve_memory_mode(group_id, mode_maps[user_id])
+
+        for item in db.query(Item).filter(Item.in_plan.is_(True)).all():
+            mode = memory_mode_for(item.user_id, item.group_id)
+            repaired = repair_learned_at_if_review_still_due(
+                item.learned_at, item.stage_index, item.last_reviewed_at, mode
+            )
+            if repaired:
+                item.learned_at = repaired
+                fixed += 1
+
+        for pair in db.query(ConfusablePair).filter(ConfusablePair.in_plan.is_(True)).all():
+            repaired = repair_learned_at_if_review_still_due(
+                pair.learned_at,
+                pair.stage_index,
+                pair.last_reviewed_at,
+                None,
+            )
+            if repaired:
+                pair.learned_at = repaired
+                fixed += 1
+
+        for word in db.query(Word).filter(Word.in_plan.is_(True)).all():
+            mode = memory_mode_for(word.user_id, word.group_id)
+            word_fixed = False
+            for track in WordReviewTrack:
+                learned_at = get_track_value(word, track, "learned_at")
+                stage_index = get_track_value(word, track, "stage_index")
+                last_reviewed_at = get_track_value(word, track, "last_reviewed_at")
+                repaired = repair_learned_at_if_review_still_due(
+                    learned_at, stage_index, last_reviewed_at, mode
+                )
+                if repaired:
+                    set_track_value(word, track, "learned_at", repaired)
+                    word_fixed = True
+            if word_fixed:
+                sync_legacy_from_spell(word)
+                fixed += 1
+
+        db.commit()
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO schema_meta (key, value) VALUES "
+                    "('fix_late_review_schedule_v1', :count)"
+                ),
+                {"count": str(fixed)},
+            )
+    finally:
+        db.close()

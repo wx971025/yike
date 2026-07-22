@@ -1,0 +1,5 @@
+-r workspace/backend/requirements.txt
+pyinstaller==6.11.1
+pywebview==5.3.2
+pythonnet==3.0.5
+tzdata>=2024.1

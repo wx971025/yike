@@ -19,7 +19,8 @@ import { useGroups } from "../context/GroupContext";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { getReviewStageOptions, type Item, type Reminder, type Word } from "../types";
 import { recurrenceLabel } from "../utils/reminderSchedule";
-import { getNextReviewDate, getPlanCardStatusMeta } from "../utils/reviewSchedule";
+import { getNextReviewDate, getPlanCardStatus, getPlanCardStatusMeta } from "../utils/reviewSchedule";
+import { wordTrackState } from "../utils/wordReviewTrack";
 import { isGroupFilterActive } from "../utils/groupFilter";
 import {
   sortByNextReviewDate,
@@ -648,11 +649,28 @@ export default function PlanItemsPage() {
             </thead>
             <tbody>
               {sortedWords.map((word) => {
-                const status = getPlanCardStatusMeta(
-                  word,
-                  undefined,
-                  memoryModeForGroupId(word.group_id)
-                );
+                const memoryMode = memoryModeForGroupId(word.group_id);
+                const spellState = wordTrackState(word, "spell");
+                const recState = wordTrackState(word, "recognize");
+                const spellStatusKey = getPlanCardStatus(spellState, undefined, memoryMode);
+                const recStatusKey = getPlanCardStatus(recState, undefined, memoryMode);
+                const combinedStatusKey =
+                  spellStatusKey === "due_today" || recStatusKey === "due_today"
+                    ? "due_today"
+                    : spellStatusKey === "reviewed_today" &&
+                        recStatusKey === "reviewed_today"
+                      ? "reviewed_today"
+                      : "upcoming";
+                const statusMeta = getPlanCardStatusMeta(spellState, undefined, memoryMode);
+                const status =
+                  combinedStatusKey === "due_today"
+                    ? { label: "今日未复习", className: "bg-red-100 text-red-700" }
+                    : combinedStatusKey === "reviewed_today"
+                      ? {
+                          label: "今日已复习",
+                          className: "bg-green-100 text-green-700",
+                        }
+                      : statusMeta;
                 return (
                   <tr
                     key={word.id}
@@ -690,13 +708,17 @@ export default function PlanItemsPage() {
                       <GroupTag groupId={word.group_id} />
                     </td>
                     <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
-                      {getNextReviewDate(word, memoryModeForGroupId(word.group_id)) ??
-                        "—"}
+                      拼写 {getNextReviewDate(spellState, memoryMode) ?? "—"}
+                      <br />
+                      认知 {getNextReviewDate(recState, memoryMode) ?? "—"}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-0.5">
                         <span className="text-slate-500 dark:text-slate-400">
-                          第 {word.stage_index + 1}/
+                          拼写 第 {spellState.stage_index + 1}/
+                          {totalStagesForGroupId(word.group_id)} 轮
+                          <br />
+                          认知 第 {recState.stage_index + 1}/
                           {totalStagesForGroupId(word.group_id)} 轮
                         </span>
                         <IconButton

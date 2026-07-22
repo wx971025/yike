@@ -19,6 +19,7 @@ import type {
   Word,
 } from "../types";
 import { toApiGroupIds, type GroupFilterSelection } from "../utils/groupFilter";
+import type { WordReviewTrack } from "../utils/wordReviewTrack";
 
 function groupFilterParams(groupIds?: GroupFilterSelection) {
   const ids = groupIds ? toApiGroupIds(groupIds) : undefined;
@@ -208,9 +209,12 @@ export const wordApi = {
   update: (id: number, payload: Partial<WordPayload>) =>
     api.put<Word>(`/words/${id}`, payload),
   remove: (id: number) => api.delete(`/words/${id}`),
-  review: (id: number) => api.post<Word>(`/words/${id}/review`),
-  skip: (id: number) => api.post<Word>(`/words/${id}/skip`),
-  resetStage: (id: number) => api.post<Word>(`/words/${id}/reset-stage`),
+  review: (id: number, track: WordReviewTrack = "spell") =>
+    api.post<Word>(`/words/${id}/review`, null, { params: { track } }),
+  skip: (id: number, track: WordReviewTrack = "spell") =>
+    api.post<Word>(`/words/${id}/skip`, null, { params: { track } }),
+  resetStage: (id: number, track: WordReviewTrack = "spell") =>
+    api.post<Word>(`/words/${id}/reset-stage`, null, { params: { track } }),
   joinPlan: (id: number) => api.post<Word>(`/words/${id}/join-plan`),
   leavePlan: (id: number) => api.post<Word>(`/words/${id}/leave-plan`),
   joinPlanAll: (groupIds?: GroupFilterSelection, q?: string) =>
@@ -281,9 +285,9 @@ export const reviewApi = {
     api.get<ReviewItem[]>("/reviews/today", {
       params: groupFilterParams(groupIds),
     }),
-  todayWords: (groupIds?: GroupFilterSelection) =>
+  todayWords: (groupIds?: GroupFilterSelection, track: WordReviewTrack = "spell") =>
     api.get<ReviewWord[]>("/reviews/today/words", {
-      params: groupFilterParams(groupIds),
+      params: { ...groupFilterParams(groupIds), track },
     }),
   todayConfusablePairs: () =>
     api.get<ReviewConfusablePair[]>("/reviews/today/confusable-pairs"),

@@ -10,6 +10,7 @@ import WordReviewSettingsMenu from "../components/WordReviewSettingsMenu";
 import { CurveIcon, ChevronLeftIcon, IconButton } from "../components/ItemIcons";
 import { useGroups } from "../context/GroupContext";
 import { type Item, type Reminder, type ReviewConfusablePair, type ReviewItem, type ReviewWord, type ReviewedTodayItem } from "../types";
+import { type WordReviewTrack, wordTrackLabel, wordTrackState } from "../utils/wordReviewTrack";
 import { recurrenceLabel } from "../utils/reminderSchedule";
 import { sortByCreatedAt } from "../utils/sort";
 import { todayStr, getNextReviewDate } from "../utils/reviewSchedule";
@@ -86,21 +87,25 @@ export default function Dashboard() {
     new Set()
   );
   const [items, setItems] = useState<ReviewItem[]>([]);
-  const [words, setWords] = useState<ReviewWord[]>([]);
+  const [spellWords, setSpellWords] = useState<ReviewWord[]>([]);
+  const [recognizeWords, setRecognizeWords] = useState<ReviewWord[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [completed, setCompleted] = useState<ReviewedTodayItem[]>([]);
   const [completedStats, setCompletedStats] = useState({ total: 0, item_count: 0, word_count: 0 });
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"due" | "stats">("due");
   const [dueSubTab, setDueSubTab] = useState<"item" | "word" | "confusable" | "reminder">("item");
+  const [wordTrackTab, setWordTrackTab] = useState<WordReviewTrack>("spell");
   const [wordOrderMode, setWordOrderMode] = useState<WordOrderMode>("shuffle");
-  const [wordQueue, setWordQueue] = useState<ReviewWord[]>([]);
+  const [spellQueue, setSpellQueue] = useState<ReviewWord[]>([]);
+  const [recognizeQueue, setRecognizeQueue] = useState<ReviewWord[]>([]);
   const [wordHistory, setWordHistory] = useState<ReviewWord[]>([]);
   const [confusablePairs, setConfusablePairs] = useState<ReviewConfusablePair[]>([]);
   const [confusableQueue, setConfusableQueue] = useState<ReviewConfusablePair[]>([]);
   const [curveItem, setCurveItem] = useState<Item | null>(null);
   const [reviewToast, setReviewToast] = useState<string | null>(null);
-  const wordSessionTotalRef = useRef(0);
+  const spellSessionTotalRef = useRef(0);
+  const recognizeSessionTotalRef = useRef(0);
   const confusableSessionTotalRef = useRef(0);
 
   const loadDueItems = useCallback(async () => {
@@ -109,8 +114,12 @@ export default function Dashboard() {
   }, [dueItemGroupFilterIds]);
 
   const loadDueWords = useCallback(async () => {
-    const res = await reviewApi.todayWords(dueWordGroupFilterIds);
-    setWords(res.data);
+    const [spellRes, recognizeRes] = await Promise.all([
+      reviewApi.todayWords(dueWordGroupFilterIds, "spell"),
+      reviewApi.todayWords(dueWordGroupFilterIds, "recognize"),
+    ]);
+    setSpellWords(spellRes.data);
+    setRecognizeWords(recognizeRes.data);
   }, [dueWordGroupFilterIds]);
 
   const loadDueReminders = useCallback(async () => {
@@ -161,11 +170,24 @@ export default function Dashboard() {
     return () => window.removeEventListener("app-data-changed", handler);
   }, [load]);
 
-  useEffect(() => {
-    wordSessionTotalRef.current = 0;
-    setWordQueue([]);
+  const resetSpellSession = useCallback((ordered: ReviewWord[]) => {
+    setSpellQueue(ordered);
     setWordHistory([]);
-  }, [dueWordGroupFilterIds]);
+    spellSessionTotalRef.current = ordered.length;
+  }, []);
+
+  const resetRecognizeSession = useCallback((ordered: ReviewWord[]) => {
+    setRecognizeQueue(ordered);
+    setWordHistory([]);
+    recognizeSessionTotalRef.current = ordered.length;
+  }, []);
+
+  useEffect(() => {
+    spellSessionTotalRef.current = 0;
+    recognizeSessionTotalRef.current = 0;
+    resetSpellSession([]);
+    resetRecognizeSession([]);
+  }, [dueWordGroupFilterIds, resetSpellSession, resetRecognizeSession]);
 
   useEffect(() => {
     confusableSessionTotalRef.current = 0;
@@ -173,8 +195,18 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    wordSessionTotalRef.current = Math.max(wordSessionTotalRef.current, words.length);
-  }, [words.length]);
+    spellSessionTotalRef.current = Math.max(
+      spellSessionTotalRef.current,
+      spellWords.length
+    );
+  }, [spellWords.length]);
+
+  useEffect(() => {
+    recognizeSessionTotalRef.current = Math.max(
+      recognizeSessionTotalRef.current,
+      recognizeWords.length
+    );
+  }, [recognizeWords.length]);
 
   useEffect(() => {
     confusableSessionTotalRef.current = Math.max(
@@ -184,19 +216,37 @@ export default function Dashboard() {
   }, [confusablePairs.length]);
 
   useEffect(() => {
-    setWordQueue((prev) => {
-      const available = new Map(words.map((w) => [w.id, w]));
+    setSpellQueue((prev) => {
+      const available = new Map(spellWords.map((w) => [w.id, w]));
       const kept = prev
         .filter((w) => available.has(w.id))
         .map((w) => available.get(w.id)!);
       if (kept.length > 0) return kept;
-      return orderWords(words, wordOrderMode);
+      const ordered = orderWords(spellWords, wordOrderMode);
+      resetSpellSession(ordered);
+      return ordered;
     });
-  }, [words]);
+  }, [spellWords, resetSpellSession, wordOrderMode]);
 
   useEffect(() => {
-    setWordQueue(orderWords(words, wordOrderMode));
-    setWordHistory([]);
+    setRecognizeQueue((prev) => {
+      const available = new Map(recognizeWords.map((w) => [w.id, w]));
+      const kept = prev
+        .filter((w) => available.has(w.id))
+        .map((w) => available.get(w.id)!);
+      if (kept.length > 0) return kept;
+      const ordered = orderWords(recognizeWords, wordOrderMode);
+      resetRecognizeSession(ordered);
+      return ordered;
+    });
+  }, [recognizeWords, resetRecognizeSession, wordOrderMode]);
+
+  useEffect(() => {
+    resetSpellSession(orderWords(spellWords, wordOrderMode));
+  }, [wordOrderMode]);
+
+  useEffect(() => {
+    resetRecognizeSession(orderWords(recognizeWords, wordOrderMode));
   }, [wordOrderMode]);
 
   useEffect(() => {
@@ -215,17 +265,49 @@ export default function Dashboard() {
   }, [wordOrderMode]);
 
   useEffect(() => {
+    setWordHistory([]);
+  }, [wordTrackTab]);
+
+  useEffect(() => {
     if (!reviewToast) return;
     const timer = window.setTimeout(() => setReviewToast(null), 2200);
     return () => window.clearTimeout(timer);
   }, [reviewToast]);
 
   const itemCount = items.length;
-  const wordCount = wordQueue.length;
+  const spellCount = spellQueue.length;
+  const recognizeCount = recognizeQueue.length;
+  const wordCount = spellCount + recognizeCount;
+  const activeWordQueue = wordTrackTab === "spell" ? spellQueue : recognizeQueue;
+  const activeSessionTotal =
+    wordTrackTab === "spell"
+      ? Math.max(spellSessionTotalRef.current, spellQueue.length)
+      : Math.max(recognizeSessionTotalRef.current, recognizeQueue.length);
+  const wordProgressTotal = activeSessionTotal;
+  const wordProgressStep =
+    activeSessionTotal -
+    activeWordQueue.length +
+    (activeWordQueue.length > 0 ? 1 : 0);
+  const activeTrackReviewPending =
+    wordTrackTab === "spell" ? spellCount > 0 : recognizeCount > 0;
+
+  const openWordReviewTab = () => {
+    setDueSubTab("word");
+    if (spellCount > 0) {
+      setWordTrackTab("spell");
+    } else if (recognizeCount > 0) {
+      setWordTrackTab("recognize");
+    } else {
+      setWordTrackTab("spell");
+    }
+  };
+
   const confusableCount = confusableQueue.length;
   const reminderCount = reminders.length;
   const isWordReviewActive =
-    activeTab === "due" && dueSubTab === "word" && wordCount > 0;
+    activeTab === "due" &&
+    dueSubTab === "word" &&
+    activeTrackReviewPending;
   const isConfusableReviewActive =
     activeTab === "due" && dueSubTab === "confusable" && confusableCount > 0;
   const isSpellReviewActive = isWordReviewActive || isConfusableReviewActive;
@@ -256,11 +338,21 @@ export default function Dashboard() {
     setWordHistory((prev) => [...prev, word]);
   };
 
+  const setActiveWordQueue = (
+    updater: (queue: ReviewWord[]) => ReviewWord[]
+  ) => {
+    if (wordTrackTab === "spell") {
+      setSpellQueue(updater);
+    } else {
+      setRecognizeQueue(updater);
+    }
+  };
+
   const handleWordPrevious = () => {
     setWordHistory((prev) => {
       if (prev.length === 0) return prev;
       const previous = prev[prev.length - 1];
-      setWordQueue((queue) => {
+      setActiveWordQueue((queue) => {
         if (queue.length === 0) return [previous];
         const [current, ...rest] = queue;
         const restWithoutPrev = rest.filter((w) => w.id !== previous.id);
@@ -272,71 +364,96 @@ export default function Dashboard() {
     });
   };
 
-  const handleWordReview = async (id: number) => {
-    const current = wordQueue[0];
+  const removeWordFromTrack = (id: number, track: WordReviewTrack) => {
+    if (track === "spell") {
+      setSpellWords((prev) => prev.filter((w) => w.id !== id));
+      setSpellQueue((prev) => prev.filter((w) => w.id !== id));
+      return;
+    }
+    setRecognizeWords((prev) => prev.filter((w) => w.id !== id));
+    setRecognizeQueue((prev) => prev.filter((w) => w.id !== id));
+  };
+
+  const handleWordSpellComplete = async (id: number, wasPeeked: boolean) => {
+    const current = spellQueue[0];
+    if (!current || current.id !== id) return;
+    pushWordHistory(current);
+    if (!wasPeeked) {
+      await wordApi.review(id, "spell");
+      if (current) setReviewToast(`${current.word} 拼写已复习`);
+      window.dispatchEvent(new CustomEvent("app-data-changed"));
+    }
+    removeWordFromTrack(id, "spell");
+  };
+
+  const handleWordRecognizeKnown = async (id: number) => {
+    const current = recognizeQueue[0];
     if (current?.id === id) pushWordHistory(current);
-    await wordApi.review(id);
-    setWords((prev) => prev.filter((w) => w.id !== id));
-    setWordQueue((prev) => prev.filter((w) => w.id !== id));
+    await wordApi.review(id, "recognize");
+    if (current) setReviewToast(`${current.word} 认知已复习`);
+    removeWordFromTrack(id, "recognize");
     window.dispatchEvent(new CustomEvent("app-data-changed"));
+  };
+
+  const handleWordRecognizeForgot = (id: number) => {
+    const current = recognizeQueue[0];
+    if (!current || current.id !== id) return;
+    pushWordHistory(current);
+    setRecognizeQueue((prev) => {
+      if (prev.length <= 1) return prev;
+      const [first, ...rest] = prev;
+      if (first.id !== id) return prev;
+      return [...rest, first];
+    });
   };
 
   const handleWordSkip = async (id: number) => {
-    const current = wordQueue[0];
+    const current = activeWordQueue[0];
     if (current?.id === id) pushWordHistory(current);
-    await wordApi.skip(id);
-    setWords((prev) => prev.filter((w) => w.id !== id));
-    setWordQueue((prev) => prev.filter((w) => w.id !== id));
+    await wordApi.skip(id, wordTrackTab);
+    removeWordFromTrack(id, wordTrackTab);
     window.dispatchEvent(new CustomEvent("app-data-changed"));
-  };
-
-  const handleWordDefer = (id: number) => {
-    const current = wordQueue[0];
-    if (current?.id === id) pushWordHistory(current);
-    setWordQueue((prev) => {
-      const index = prev.findIndex((w) => w.id === id);
-      if (index < 0) return prev;
-      const next = [...prev];
-      const [word] = next.splice(index, 1);
-      next.push(word);
-      return next;
-    });
   };
 
   const handleWordUpdated = useCallback((updated: ReviewWord) => {
     const patch = (word: ReviewWord): ReviewWord =>
       word.id === updated.id ? updated : word;
-    setWords((prev) => prev.map(patch));
-    setWordQueue((prev) => prev.map(patch));
+    setSpellWords((prev) => prev.map(patch));
+    setRecognizeWords((prev) => prev.map(patch));
+    setSpellQueue((prev) => prev.map(patch));
+    setRecognizeQueue((prev) => prev.map(patch));
   }, []);
 
-  const handleWordPeekReset = useCallback(async (id: number) => {
-    try {
-      const res = await wordApi.resetStage(id);
-      const updated = res.data;
-      const today = todayStr();
-      const dueDate =
-        getNextReviewDate(updated, memoryModeForGroupId(updated.group_id)) ?? today;
-      const patchWord = (word: ReviewWord): ReviewWord =>
-        word.id === id
-          ? {
-              ...word,
-              ...updated,
-              stage_index: 0,
-              learned_at: updated.learned_at ?? today,
-              status: updated.status,
-              last_reviewed_at: null,
-              due_date: dueDate,
-              overdue_days: 0,
-            }
-          : word;
-      setWords((prev) => prev.map(patchWord));
-      setWordQueue((prev) => prev.map(patchWord));
-      window.dispatchEvent(new CustomEvent("app-data-changed"));
-    } catch {
-      // 重置失败不阻断当前复习流程
-    }
-  }, [memoryModeForGroupId]);
+  const handleWordPeekReset = useCallback(
+    async (id: number) => {
+      try {
+        const res = await wordApi.resetStage(id, "spell");
+        const updated = res.data;
+        const today = todayStr();
+        const trackState = wordTrackState(updated, "spell");
+        const dueDate =
+          getNextReviewDate(
+            trackState,
+            memoryModeForGroupId(updated.group_id)
+          ) ?? today;
+        const patchWord = (word: ReviewWord): ReviewWord =>
+          word.id === id
+            ? {
+                ...word,
+                ...updated,
+                due_date: dueDate,
+                overdue_days: 0,
+              }
+            : word;
+        setSpellWords((prev) => prev.map(patchWord));
+        setSpellQueue((prev) => prev.map(patchWord));
+        window.dispatchEvent(new CustomEvent("app-data-changed"));
+      } catch {
+        // 重置失败不阻断当前复习流程
+      }
+    },
+    [memoryModeForGroupId]
+  );
 
   const handleConfusableReview = async (id: number) => {
     await confusablePairApi.review(id);
@@ -371,13 +488,18 @@ export default function Dashboard() {
 
   const renderCompletedEntry = (entry: ReviewedTodayItem) => (
     <div
-      key={`${entry.kind}-${entry.id}`}
+      key={`${entry.kind}-${entry.track ?? ""}-${entry.id}`}
       className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50/50 px-4 py-3"
     >
       <span className="text-green-600">✓</span>
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex flex-wrap items-center gap-2">
           <CardKindBadge kind={entry.kind} />
+          {entry.kind === "word" && entry.track && (
+            <span className="rounded bg-violet-100 px-2 py-0.5 text-xs text-violet-700">
+              {wordTrackLabel(entry.track)}
+            </span>
+          )}
           <GroupTag groupId={entry.group_id} className="ml-0" />
         </div>
         <p className="truncate font-medium text-slate-800 dark:text-slate-100">{entry.title}</p>
@@ -481,7 +603,7 @@ export default function Dashboard() {
             </button>
             <button
               type="button"
-              onClick={() => setDueSubTab("word")}
+              onClick={openWordReviewTab}
               className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
                 dueSubTab === "word"
                   ? "bg-violet-100 text-violet-700"
@@ -636,10 +758,42 @@ export default function Dashboard() {
               </div>
             )
           ) : dueSubTab === "word" ? (
-            wordCount === 0 ? (
-            <DueEmptyState kind="word" />
-          ) : (
             <div className={isWordReviewActive ? "flex min-h-0 flex-1 flex-col" : undefined}>
+            <div className="mb-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setWordTrackTab("spell")}
+                className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+                  wordTrackTab === "spell"
+                    ? "bg-violet-100 text-violet-700"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                }`}
+              >
+                拼写复习
+                <span className="ml-2 rounded-full bg-white/80 px-2 py-0.5 text-xs dark:bg-slate-900/80">
+                  {spellCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setWordTrackTab("recognize")}
+                className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+                  wordTrackTab === "recognize"
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                }`}
+              >
+                认知复习
+                <span className="ml-2 rounded-full bg-white/80 px-2 py-0.5 text-xs dark:bg-slate-900/80">
+                  {recognizeCount}
+                </span>
+              </button>
+            </div>
+            {!activeTrackReviewPending ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 px-6 py-16 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                今天没有待{wordTrackLabel(wordTrackTab)}复习的单词
+              </div>
+            ) : (
             <div
               className={`flex gap-2 ${
                 isWordReviewActive ? "min-h-0 flex-1 items-stretch" : "items-center"
@@ -661,27 +815,30 @@ export default function Dashboard() {
                 }
               >
             <WordReviewCard
-              word={wordQueue[0]}
-              groupId={wordQueue[0].group_id}
-              currentIndex={wordSessionTotalRef.current - wordQueue.length}
-              totalCount={Math.max(wordSessionTotalRef.current, wordQueue.length)}
+              word={activeWordQueue[0]}
+              groupId={activeWordQueue[0].group_id}
+              track={wordTrackTab}
+              mode={wordTrackTab}
+              progressStep={wordProgressStep}
+              progressTotal={wordProgressTotal}
               wordOrderMode={wordOrderMode}
               onToggleWordOrder={() =>
                 setWordOrderMode((mode) =>
                   mode === "shuffle" ? "created_at" : "shuffle"
                 )
               }
-              onReviewed={handleWordReview}
-              onSkip={handleWordSkip}
-              onDefer={handleWordDefer}
+              onSpellComplete={(id, wasPeeked) => void handleWordSpellComplete(id, wasPeeked)}
+              onRecognizeKnown={(id) => void handleWordRecognizeKnown(id)}
+              onRecognizeForgot={handleWordRecognizeForgot}
+              onSkip={(id) => void handleWordSkip(id)}
               onPeekAnswer={handleWordPeekReset}
               onWordUpdated={handleWordUpdated}
             />
               </div>
             </div>
+            )}
             </div>
-          )
-        ) : dueSubTab === "confusable" ? (
+          ) : dueSubTab === "confusable" ? (
           confusableCount === 0 ? (
             <DueEmptyState kind="confusable" />
           ) : (
