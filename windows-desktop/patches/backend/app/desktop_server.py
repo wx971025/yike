@@ -16,7 +16,8 @@ app.include_router(desktop.router)
 STATIC_DIR = Path(os.environ.get("YIKE_STATIC_DIR", "")).resolve()
 WEB_DIR = Path(__file__).resolve().parent / "web"
 DESKTOP_INJECT = """
-<script>
+<script id="yike-desktop-inject">
+window.__YIKE_DESKTOP__ = true;
 (function () {
   var TOKEN_KEY = "ebbinghaus_token";
   var BANNER_ID = "yike-dict-banner";
@@ -95,10 +96,9 @@ def _inject_desktop_script(html: str) -> str:
     if "yike-desktop-inject" in html:
         return html
     marker = "</head>"
-    tagged = DESKTOP_INJECT.replace("<script>", '<script id="yike-desktop-inject">', 1)
     if marker in html:
-        return html.replace(marker, tagged + marker, 1)
-    return tagged + html
+        return html.replace(marker, DESKTOP_INJECT + marker, 1)
+    return DESKTOP_INJECT + html
 
 
 def _serve_index() -> HTMLResponse:

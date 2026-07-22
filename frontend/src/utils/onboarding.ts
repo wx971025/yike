@@ -4,14 +4,48 @@ export function onboardingStorageKey(userId: number): string {
   return `${STORAGE_PREFIX}-${userId}`;
 }
 
+declare global {
+  interface Window {
+    __YIKE_DESKTOP__?: boolean;
+  }
+}
+
+export function isDesktopApp(): boolean {
+  return typeof window !== "undefined" && window.__YIKE_DESKTOP__ === true;
+}
+
 export function isOnboardingCompleted(userId: number): boolean {
   if (typeof window === "undefined") return true;
   return localStorage.getItem(onboardingStorageKey(userId)) === "1";
 }
 
+/** 桌面版：从本地 JSON 偏好文件恢复引导状态（WebView localStorage 可能不稳定）。 */
+export async function hydrateOnboardingFromDesktop(userId: number): Promise<boolean> {
+  if (isOnboardingCompleted(userId)) return true;
+  if (!isDesktopApp()) return false;
+
+  try {
+    const res = await fetch(`/api/desktop/preferences/onboarding/${userId}`);
+    if (!res.ok) return false;
+    const data = (await res.json()) as { completed?: boolean };
+    if (data.completed) {
+      localStorage.setItem(onboardingStorageKey(userId), "1");
+      return true;
+    }
+  } catch {
+    // ignore network errors during hydration
+  }
+  return false;
+}
+
 export function markOnboardingCompleted(userId: number): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(onboardingStorageKey(userId), "1");
+  if (isDesktopApp()) {
+    void fetch(`/api/desktop/preferences/onboarding/${userId}`, {
+      method: "POST",
+    }).catch(() => {});
+  }
 }
 
 export interface OnboardingStep {

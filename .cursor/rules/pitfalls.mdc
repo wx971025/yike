@@ -17,6 +17,16 @@ alwaysApply: false
 
 ## 记录
 
+### 2026-07-22 · 桌面版新手引导每次打开都出现
+
+- **原因**：pywebview/WebView2 未设置 `storage_path` 时 localStorage 不持久；桌面版 token 有 bootstrap 兜底所以仍免登录，但引导完成标记只写 localStorage，重启后丢失。
+- **解决路线**：`entry.py` 为 WebView 指定 `%LOCALAPPDATA%\\YiKe\\webview`；引导完成同时写入 `desktop_prefs.json`（`/api/desktop/preferences/onboarding/{user_id}`）；启动时从服务端 hydrate 到 localStorage。
+
+### 2026-07-22 · Windows 桌面快捷方式图标不更新
+
+- **原因**：`icon.ico` 与 `logo.png` 曾需手动同步；PyInstaller `build/` 缓存导致 exe 内嵌图标未刷新；Inno 桌面快捷方式默认不勾选且未指定 `IconFilename`，Windows 会缓存旧快捷方式图标。
+- **解决路线**：`build.ps1` 每次从 `logo.png` 生成 `icon.ico` 并 `--clean` 打包；安装目录附带 `icon.ico`，快捷方式显式 `IconFilename`；升级时 `checkedonce` 重建桌面快捷方式。
+
 ### 2026-07-22 · 数据导出/导入（跨平台迁移）
 
 - **原因**：用户换平台需完整迁移分组/事项/单词/易混词/提醒/技能，含学习日期与各记忆轨道轮次。

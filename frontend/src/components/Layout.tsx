@@ -11,7 +11,7 @@ import { useAuth } from "../context/AuthContext";
 import {
   WordReviewUiProvider,
 } from "../context/WordReviewUiContext";
-import { isOnboardingCompleted } from "../utils/onboarding";
+import { isOnboardingCompleted, hydrateOnboardingFromDesktop } from "../utils/onboarding";
 
 const topNavItems = [
   { to: "/", label: "今日复习", icon: "📋", end: true },
@@ -140,9 +140,24 @@ function LayoutShell() {
   }, [isCardSection]);
 
   useEffect(() => {
-    if (user && !isOnboardingCompleted(user.id)) {
-      setShowOnboarding(true);
+    if (!user) {
+      setShowOnboarding(false);
+      return;
     }
+
+    let cancelled = false;
+    void (async () => {
+      const completed =
+        isOnboardingCompleted(user.id) ||
+        (await hydrateOnboardingFromDesktop(user.id));
+      if (!cancelled) {
+        setShowOnboarding(!completed);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
   return (

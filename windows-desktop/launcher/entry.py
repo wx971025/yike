@@ -155,7 +155,7 @@ def _start_server(app_import: str, host: str, port: int) -> None:
     uvicorn.run(app_import, host=host, port=port, log_config=None)
 
 
-def _open_native_window(url: str) -> bool:
+def _open_native_window(url: str, storage_path: Path) -> bool:
     """尝试用 pywebview 打开原生窗口，成功返回 True。"""
     try:
         import webview
@@ -171,14 +171,33 @@ def _open_native_window(url: str) -> bool:
         logger.exception("创建原生窗口失败，降级为浏览器窗口")
         return False
 
+    storage_path.mkdir(parents=True, exist_ok=True)
+    webview_storage = str(storage_path)
+    logger.info("WebView 持久化目录: %s", webview_storage)
+
     # 依次尝试可用的 GUI 后端，任一成功即认为原生窗口生效
     for gui in ("edgechromium", "cef", "mshtml", None):
         try:
+            start_kwargs = {
+                "storage_path": webview_storage,
+                "private_mode": False,
+            }
             if gui is None:
-                webview.start()
+                webview.start(**start_kwargs)
             else:
-                webview.start(gui=gui)
+                webview.start(gui=gui, **start_kwargs)
             return True
+        except TypeError:
+            # 旧版 pywebview 可能不支持 storage_path，降级尝试
+            try:
+                if gui is None:
+                    webview.start()
+                else:
+                    webview.start(gui=gui)
+                return True
+            except Exception:
+                logger.exception("pywebview 后端启动失败: gui=%s", gui)
+                continue
         except Exception:
             logger.exception("pywebview 后端启动失败: gui=%s", gui)
             continue
@@ -254,7 +273,8 @@ def main() -> None:
 
     logger.info("后端已就绪: %s", url)
 
-    if not _open_native_window(url):
+    webview_dir = data_root / "webview"
+    if not _open_native_window(url, webview_dir):
         _open_browser_fallback(url)
 
 

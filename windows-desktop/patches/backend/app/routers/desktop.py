@@ -1,6 +1,7 @@
 """桌面版 API：免登录 bootstrap + 词典按需下载管理。"""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import secrets
@@ -38,6 +39,31 @@ def _require_desktop(request: Request) -> None:
     client = request.client.host if request.client else ""
     if client not in {"127.0.0.1", "::1"}:
         raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _prefs_path() -> Path:
+    return Path(DICT_DB_PATH).parent / "desktop_prefs.json"
+
+
+def _load_prefs() -> dict:
+    path = _prefs_path()
+    if not path.is_file():
+        return {"onboarding_completed": []}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            completed = data.get("onboarding_completed", [])
+            if isinstance(completed, list):
+                return {"onboarding_completed": completed}
+    except Exception:
+        logger.exception("读取 desktop_prefs.json 失败")
+    return {"onboarding_completed": []}
+
+
+def _save_prefs(data: dict) -> None:
+    path = _prefs_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 @dataclass
@@ -92,6 +118,25 @@ def bootstrap(request: Request):
         return Token(access_token=create_access_token(user.username))
     finally:
         db.close()
+
+
+@router.get("/preferences/onboarding/{user_id}")
+def get_onboarding_preference(user_id: int, request: Request):
+    _require_desktop(request)
+    prefs = _load_prefs()
+    completed_ids = prefs.get("onboarding_completed", [])
+    return {"completed": user_id in completed_ids}
+
+
+@router.post("/preferences/onboarding/{user_id}")
+def mark_onboarding_preference(user_id: int, request: Request):
+    _require_desktop(request)
+    prefs = _load_prefs()
+    completed_ids = prefs.setdefault("onboarding_completed", [])
+    if user_id not in completed_ids:
+        completed_ids.append(user_id)
+    _save_prefs(prefs)
+    return {"completed": True}
 
 
 @router.get("/dictionary/status")

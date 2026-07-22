@@ -30,6 +30,12 @@ if ($SourceRoot) { $syncArgs.SourceRoot = $SourceRoot }
 if ($SkipSync) { $syncArgs.SkipSync = $true }
 & "$PkgDir\sync-source.ps1" @syncArgs
 
+$logoPng = Join-Path $PkgDir "workspace\frontend\public\logo.png"
+$iconIco = Join-Path $PkgDir "assets\icon.ico"
+if (-not (Test-Path $logoPng)) {
+    throw "未找到 $logoPng，无法生成桌面图标"
+}
+
 $frontendDir = Join-Path $PkgDir "workspace\frontend"
 Write-Host "==> Building frontend..."
 Push-Location $frontendDir
@@ -49,22 +55,31 @@ $pyinstaller = Join-Path $venv "Scripts\pyinstaller.exe"
 Write-Host "==> Installing build dependencies..."
 & $pip install -r (Join-Path $PkgDir "requirements-build.txt")
 
+Write-Host "==> 从 logo.png 生成 icon.ico ..."
+$python = Join-Path $venv "Scripts\python.exe"
+& $python (Join-Path $PkgDir "scripts\generate_icon.py") $logoPng $iconIco
+
 $stageDir = Join-Path $PkgDir "output\stage"
 $buildDir = Join-Path $PkgDir "build"
+if (Test-Path $stageDir) { Remove-Item -Recurse -Force $stageDir }
+if (Test-Path $buildDir) { Remove-Item -Recurse -Force $buildDir }
 New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
 
 Write-Host "==> PyInstaller onedir..."
 & $pyinstaller (Join-Path $PkgDir "launcher\yike.spec") `
     --distpath $stageDir `
     --workpath $buildDir `
+    --clean `
     --noconfirm
 
-$appExe = Join-Path $stageDir "YiKe\YiKe.exe"
+$appDir = Join-Path $stageDir "YiKe"
+Copy-Item $iconIco (Join-Path $appDir "icon.ico") -Force
+$appExe = Join-Path $appDir "YiKe.exe"
 if (-not (Test-Path $appExe)) {
     throw "Build failed: $appExe not found"
 }
 
-Write-Host ("==> App folder: {0}" -f (Join-Path $stageDir "YiKe"))
+Write-Host ("==> App folder: {0}" -f $appDir)
 
 $iscc = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
