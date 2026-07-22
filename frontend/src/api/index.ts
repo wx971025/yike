@@ -388,3 +388,21 @@ export const skillApi = {
   get: (id: number) => api.get<Skill>(`/skills/${id}`),
   remove: (id: number) => api.delete(`/skills/${id}`),
 };
+
+export interface ImportResult {
+  mode: string;
+  imported: {
+    groups: number;
+    words: number;
+    items: number;
+    confusable_pairs: number;
+    reminders: number;
+    skills: number;
+  };
+}
+
+export const dataApi = {
+  export: () => api.get<Blob>("/data/export", { responseType: "blob" }),
+  import: (payload: unknown, mode: "merge" | "replace" = "merge") =>
+    api.post<ImportResult>("/data/import", payload, { params: { mode } }),
+};

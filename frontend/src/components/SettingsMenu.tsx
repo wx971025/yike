@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { dataApi } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useTheme, type Theme } from "../context/ThemeContext";
 import { displayName } from "../utils/userProfile";
@@ -48,7 +49,71 @@ export default function SettingsMenu({ onOpenAiConfig }: SettingsMenuProps) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [busy, setBusy] = useState<null | "export" | "import">(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = async () => {
+    if (busy) return;
+    setBusy("export");
+    try {
+      const res = await dataApi.export();
+      const blob = new Blob([res.data], { type: "application/json" });
+      const disposition = res.headers?.["content-disposition"] ?? "";
+      const match = /filename="?([^"]+)"?/.exec(disposition);
+      const filename =
+        match?.[1] ??
+        `yike-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      window.alert("导出失败，请稍后重试");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleImportClick = () => {
+    if (busy) return;
+    setOpen(false);
+    fileInputRef.current?.click();
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    const replace = window.confirm(
+      "导入方式：\n\n【确定】清空当前账号数据后再导入（推荐用于换新设备）\n【取消】保留现有数据并追加导入"
+    );
+
+    setBusy("import");
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      const res = await dataApi.import(payload, replace ? "replace" : "merge");
+      const c = res.data.imported;
+      window.dispatchEvent(new CustomEvent("app-data-changed"));
+      window.alert(
+        `导入完成：\n分组 ${c.groups}｜单词 ${c.words}｜事项 ${c.items}｜易混词 ${c.confusable_pairs}｜提醒 ${c.reminders}｜技能 ${c.skills}`
+      );
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        window.alert("导入失败：文件不是有效的备份文件");
+      } else {
+        window.alert("导入失败，请确认选择的是本应用导出的备份文件");
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -87,6 +152,24 @@ export default function SettingsMenu({ onOpenAiConfig }: SettingsMenuProps) {
               >
                 AI 配置
               </button>
+              <div className="border-t border-slate-100 dark:border-slate-800" />
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={busy !== null}
+                className="w-full px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                {busy === "export" ? "正在导出…" : "导出数据"}
+              </button>
+              <button
+                type="button"
+                onClick={handleImportClick}
+                disabled={busy !== null}
+                className="w-full px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                {busy === "import" ? "正在导入…" : "导入数据"}
+              </button>
+              <div className="border-t border-slate-100 dark:border-slate-800" />
               <button
                 type="button"
                 onClick={handleLogout}
@@ -124,6 +207,14 @@ export default function SettingsMenu({ onOpenAiConfig }: SettingsMenuProps) {
           </div>
         </button>
       </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={handleImportFile}
+      />
 
       {profileModalOpen && (
         <UserProfileModal onClose={() => setProfileModalOpen(false)} />

@@ -17,6 +17,11 @@ alwaysApply: false
 
 ## 记录
 
+### 2026-07-22 · 数据导出/导入（跨平台迁移）
+
+- **原因**：用户换平台需完整迁移分组/事项/单词/易混词/提醒/技能，含学习日期与各记忆轨道轮次。
+- **解决路线**：`routers/data_transfer.py` 用 SQLAlchemy `inspect` 通用序列化所有列（自动含全部日期与 stage 字段），导入时新建记录并重映射 `group_id`、`source_word_id`；支持 `mode=merge/replace`。前端 `dataApi` + 左下角设置菜单「导出/导入数据」，导入后派发 `app-data-changed` 刷新。PyInstaller spec 需补 `app.routers.data_transfer` hiddenimport。
+
 ### 2026-07-22 · uvicorn 在 windowed exe 下 `sys.stdout` 为 None 崩溃
 
 - **原因**：`console=False` 打包后 `sys.stdout/stderr` 为 `None`，uvicorn 默认日志的 `ColourizedFormatter.__init__` 调用 `sys.stdout.isatty()` 抛 `AttributeError`，导致 `configure_logging` 失败、后端起不来、健康检查超时、窗口打不开。

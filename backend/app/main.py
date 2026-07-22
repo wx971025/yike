@@ -27,7 +27,7 @@ from .migrations import (
     migrate_word_dual_track_v1,
     migrate_fix_late_review_schedule_v1,
 )
-from .routers import ai, ai_configs, auth, calendar, confusable_pairs, dictionary, groups, items, reminders, skills, words
+from .routers import ai, ai_configs, auth, calendar, confusable_pairs, data_transfer, dictionary, groups, items, reminders, skills, words
 from .services.dictionary import schedule_dictionary_setup
 
 Base.metadata.create_all(bind=engine)
@@ -76,6 +76,7 @@ app.include_router(calendar.router)
 app.include_router(ai.router)
 app.include_router(skills.router)
 app.include_router(dictionary.router)
+app.include_router(data_transfer.router)
 
 
 @app.on_event("startup")

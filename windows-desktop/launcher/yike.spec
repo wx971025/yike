@@ -48,6 +48,7 @@ hiddenimports = [
     "app.routers.confusable_pairs",
     "app.routers.dictionary",
     "app.routers.desktop",
+    "app.routers.data_transfer",
     "app.routers.skills",
     "app.services.dict_setup",
     "app.services.dictionary",
