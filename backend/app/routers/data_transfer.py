@@ -100,6 +100,15 @@ def export_data(
     return JSONResponse(content=payload, headers=headers)
 
 
+def _normalize_row_id(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 @router.post("/import")
 def import_data(
     payload: dict = Body(...),
@@ -131,12 +140,12 @@ def import_data(
         obj = _coerce(Group, row, {"user_id": user.id})
         db.add(obj)
         db.flush()
-        old_id = row.get("id")
+        old_id = _normalize_row_id(row.get("id"))
         if old_id is not None:
             group_map[old_id] = obj.id
 
     def group_override(row: dict) -> dict:
-        old_gid = row.get("group_id")
+        old_gid = _normalize_row_id(row.get("group_id"))
         new_gid = group_map.get(old_gid) if old_gid is not None else None
         return {"user_id": user.id, "group_id": new_gid}
 

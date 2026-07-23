@@ -24,6 +24,17 @@ Write-Host "==> YiKe Windows desktop build"
 Write-Host "==> Working directory: $PkgDir"
 
 function Get-DefaultAppVersion {
+    $versionJsonPath = Join-Path $PkgDir "launcher\version.json"
+    if (Test-Path $versionJsonPath) {
+        try {
+            $data = Get-Content $versionJsonPath -Raw | ConvertFrom-Json
+            if ($data.version) {
+                return [string]$data.version
+            }
+        } catch {
+            Write-Warning "读取 launcher\version.json 失败，回退到 yike.iss"
+        }
+    }
     $issPath = Join-Path $PkgDir "installer\yike.iss"
     if (-not (Test-Path $issPath)) {
         return "1.0.0"

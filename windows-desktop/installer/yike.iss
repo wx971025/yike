@@ -3,12 +3,15 @@
 #define MyAppPublisher "YiKe"
 #define MyAppExeName "YiKe.exe"
 #define MyAppIconName "icon.ico"
-#define MyAppVersion "1.0.1"
+#ifndef MyAppVersion
+#define MyAppVersion "1.0.0"
+#endif
 
 [Setup]
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
 AppName={#MyAppDisplayName}
 AppVersion={#MyAppVersion}
+AppVerName={#MyAppDisplayName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\YiKe
 DefaultGroupName={#MyAppDisplayName}

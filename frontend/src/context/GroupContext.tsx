@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
@@ -23,14 +24,22 @@ const GroupContext = createContext<GroupState | undefined>(undefined);
 export function GroupProvider({ children }: { children: ReactNode }) {
   const [groups, setGroups] = useState<Group[]>([]);
 
-  const refreshGroups = async () => {
+  const refreshGroups = useCallback(async () => {
     const res = await groupApi.list();
     setGroups(res.data);
-  };
+  }, []);
 
   useEffect(() => {
-    refreshGroups();
-  }, []);
+    void refreshGroups();
+  }, [refreshGroups]);
+
+  useEffect(() => {
+    const handler = () => {
+      void refreshGroups();
+    };
+    window.addEventListener("app-data-changed", handler);
+    return () => window.removeEventListener("app-data-changed", handler);
+  }, [refreshGroups]);
 
   const memoryModeForGroupId = (groupId: number | null): MemoryMode => {
     if (groupId == null) return "ebbinghaus";
