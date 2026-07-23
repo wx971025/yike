@@ -12,6 +12,7 @@ import {
   storeSyncCode,
 } from "../utils/dataTransfer";
 import { isDesktopApp } from "../utils/onboarding";
+import { copyTextToClipboard } from "../utils/clipboard";
 import { CloseIcon } from "./ItemIcons";
 
 interface DataTransferModalProps {
@@ -29,6 +30,7 @@ export default function DataTransferModal({ onClose }: DataTransferModalProps) {
   const [syncCodeLoading, setSyncCodeLoading] = useState(false);
   const [copyHint, setCopyHint] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const syncCodeInputRef = useRef<HTMLInputElement>(null);
   const desktop = isDesktopApp();
 
   useEffect(() => {
@@ -55,13 +57,11 @@ export default function DataTransferModal({ onClose }: DataTransferModalProps) {
 
   const handleCopySyncCode = async () => {
     if (!syncCode || busy) return;
-    try {
-      await navigator.clipboard.writeText(syncCode);
-      setCopyHint("已复制");
-      window.setTimeout(() => setCopyHint(""), 2000);
-    } catch {
-      setCopyHint("复制失败");
-    }
+    syncCodeInputRef.current?.focus();
+    syncCodeInputRef.current?.select();
+    const ok = await copyTextToClipboard(syncCode);
+    setCopyHint(ok ? "已复制" : "请手动 Ctrl+C");
+    window.setTimeout(() => setCopyHint(""), 2000);
   };
 
   const handleImportClick = () => {
@@ -270,9 +270,14 @@ export default function DataTransferModal({ onClose }: DataTransferModalProps) {
                     {copyHint || "复制"}
                   </button>
                 </div>
-                <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-800 dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100">
-                  {syncCodeLoading ? "加载中…" : syncCode || "—"}
-                </div>
+                <input
+                  ref={syncCodeInputRef}
+                  readOnly
+                  value={syncCodeLoading ? "加载中…" : syncCode}
+                  onFocus={(e) => e.target.select()}
+                  onClick={(e) => e.currentTarget.select()}
+                  className="w-full rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-800 dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100"
+                />
                 <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
                   每账号唯一，不可修改或删除。在桌面版输入此码即可上传或拉取进度。
                 </p>

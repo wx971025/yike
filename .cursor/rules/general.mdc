@@ -13,6 +13,8 @@ alwaysApply: true
 
 # 部署规则
 - 执行./deploy.sh脚本进行部署.
+- **Web 域名 nginx（暂缓）**：`my-yike.online` 域名尚未解封，**不要修改** `deploy/nginx*.conf`、gateway 容器配置及域名相关 nginx 片段；除非用户明确要求，否则不要动 Web 版 nginx。
+- 仅需更新应用代码时，优先 `./deploy.sh backend` 或 `./deploy.sh frontend`，避免无故重建 gateway。
 - 每次一个大的功能更新, 都直接往main分支上推送一版并发布.
 - **重要**: 每次修改完, 请复述一下推送状态, 是tag了, 还是release了, 还是仅push, 还是什么都没做
 
