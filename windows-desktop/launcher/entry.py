@@ -171,6 +171,23 @@ def _tray_icon_path() -> Path:
     raise FileNotFoundError("未找到托盘图标 icon.ico / logo.png")
 
 
+def _dialog_type(webview, kind: str) -> int:
+    file_dialog = getattr(webview, "FileDialog", None)
+    if file_dialog is not None:
+        mapping = {
+            "open": file_dialog.OPEN,
+            "folder": file_dialog.FOLDER,
+            "save": file_dialog.SAVE,
+        }
+        return mapping[kind]
+    legacy = {
+        "open": webview.OPEN_DIALOG,
+        "folder": webview.FOLDER_DIALOG,
+        "save": webview.SAVE_DIALOG,
+    }
+    return legacy[kind]
+
+
 class _DesktopBridge:
     """供前端通过 window.pywebview.api 调用的桌面能力。"""
 
@@ -233,7 +250,7 @@ class _DesktopBridge:
 
         try:
             result = webview.windows[0].create_file_dialog(
-                webview.FileDialog.FOLDER,
+                _dialog_type(webview, "folder"),
                 directory=initial,
             )
         except Exception as exc:
@@ -261,13 +278,24 @@ class _DesktopBridge:
         logger.info("导出目录已设置: %s", folder_path)
         return {"ok": True, "dir": saved.get("dir", str(folder_path))}
 
-    def save_export(self, filename: str = "") -> dict:
-        export_dir = self._get_export_dir()
-        if export_dir is None:
-            picked = self.choose_export_dir()
-            if not picked.get("ok"):
-                return picked
-            export_dir = Path(str(picked["dir"]))
+    def save_export(self, export_dir: str = "") -> dict:
+        folder_text = (export_dir or "").strip()
+        if not folder_text:
+            return {"ok": False, "error": "请先选择保存文件夹"}
+
+        folder_path = Path(folder_text)
+        if not folder_path.is_dir():
+            return {"ok": False, "error": "保存路径不是有效文件夹"}
+
+        try:
+            self._api_json(
+                "/api/desktop/preferences/export-dir",
+                method="POST",
+                payload={"dir": str(folder_path)},
+            )
+        except Exception as exc:
+            logger.exception("保存导出目录偏好失败")
+            return {"ok": False, "error": str(exc)}
 
         try:
             payload, default_name = self._fetch_export_payload()
@@ -275,21 +303,21 @@ class _DesktopBridge:
             logger.exception("读取导出数据失败")
             return {"ok": False, "error": f"读取数据失败: {exc}"}
 
-        safe_name = Path(filename or default_name).name or default_name
+        safe_name = Path(default_name).name or default_name
         if not safe_name.lower().endswith(".json"):
             safe_name = f"{safe_name}.json"
 
         content = json.dumps(payload, ensure_ascii=False, indent=2)
 
         try:
-            target_path = self._unique_path(export_dir, safe_name)
+            target_path = self._unique_path(folder_path, safe_name)
             target_path.write_text(content, encoding="utf-8")
         except Exception as exc:
-            logger.exception("写入导出文件失败: %s", export_dir)
+            logger.exception("写入导出文件失败: %s", folder_path)
             return {"ok": False, "error": str(exc)}
 
         logger.info("数据已导出: %s", target_path)
-        return {"ok": True, "path": str(target_path), "dir": str(export_dir)}
+        return {"ok": True, "path": str(target_path), "dir": str(folder_path)}
 
 
 def _start_tray_icon(

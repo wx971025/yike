@@ -228,14 +228,22 @@ def desktop_export_data(request: Request):
 
 
 @router.post("/data/export/save")
-def desktop_export_save(request: Request):
+def desktop_export_save(request: Request, payload: dict = Body(default_factory=dict)):
     _require_desktop(request)
-    export_dir = _get_export_dir_from_prefs()
+    export_dir = None
+    if isinstance(payload, dict):
+        raw_dir = payload.get("dir")
+        if isinstance(raw_dir, str) and raw_dir.strip():
+            export_dir = Path(raw_dir.strip())
+            if not export_dir.is_dir():
+                raise HTTPException(status_code=400, detail="保存路径不是有效文件夹")
+            prefs = _load_prefs()
+            prefs["export_dir"] = str(export_dir)
+            _save_prefs(prefs)
     if export_dir is None:
-        raise HTTPException(
-            status_code=400,
-            detail="请先设置导出文件夹",
-        )
+        export_dir = _get_export_dir_from_prefs()
+    if export_dir is None:
+        raise HTTPException(status_code=400, detail="请先选择保存文件夹")
     db = SessionLocal()
     try:
         user = _ensure_default_user(db)

@@ -6,7 +6,6 @@ declare global {
   interface Window {
     pywebview?: {
       api?: {
-        get_export_dir?: () => Promise<{ ok: boolean; dir?: string | null }>;
         choose_export_dir?: () => Promise<{
           ok: boolean;
           dir?: string;
@@ -14,7 +13,7 @@ declare global {
           error?: string;
         }>;
         save_export?: (
-          filename?: string
+          exportDir: string
         ) => Promise<{
           ok: boolean;
           path?: string;
@@ -46,10 +45,6 @@ function downloadJsonInBrowser(content: string, filename: string): void {
 }
 
 export async function getDesktopExportDir(): Promise<string | null> {
-  if (window.pywebview?.api?.get_export_dir) {
-    const result = await window.pywebview.api.get_export_dir();
-    return result.dir ?? null;
-  }
   const res = await api.get<{ dir: string | null }>("/desktop/preferences/export-dir");
   return res.data.dir;
 }
@@ -72,41 +67,25 @@ export async function chooseDesktopExportDir(): Promise<{
   throw new Error("当前环境无法选择文件夹，请使用桌面版");
 }
 
-async function ensureDesktopExportDir(): Promise<string | null> {
-  const existing = await getDesktopExportDir();
-  if (existing) {
-    return existing;
-  }
-
-  const proceed = window.confirm(
-    "首次导出需要先选择备份保存文件夹。\n\n点击「确定」后，请在弹出的窗口中选择一个文件夹。"
-  );
-  if (!proceed) {
-    return null;
-  }
-
-  const picked = await chooseDesktopExportDir();
-  if (!picked.ok) {
-    return null;
-  }
-  return picked.dir ?? null;
-}
-
-async function exportOnDesktop(): Promise<{ saved: boolean; path?: string; dir?: string }> {
-  const exportDir = await ensureDesktopExportDir();
-  if (!exportDir) {
-    return { saved: false };
+async function exportOnDesktop(exportDir: string): Promise<{
+  saved: boolean;
+  path?: string;
+  dir?: string;
+}> {
+  const dir = exportDir.trim();
+  if (!dir) {
+    throw new Error("请选择保存文件夹");
   }
 
   if (window.pywebview?.api?.save_export) {
-    const result = await window.pywebview.api.save_export("");
+    const result = await window.pywebview.api.save_export(dir);
     if (result.cancelled) {
       return { saved: false };
     }
     if (!result.ok) {
       throw new Error(result.error ?? "保存失败");
     }
-    return { saved: true, path: result.path, dir: result.dir ?? exportDir };
+    return { saved: true, path: result.path, dir: result.dir ?? dir };
   }
 
   const res = await api.post<{
@@ -114,14 +93,14 @@ async function exportOnDesktop(): Promise<{ saved: boolean; path?: string; dir?:
     path: string;
     filename: string;
     dir: string;
-  }>("/desktop/data/export/save");
+  }>("/desktop/data/export/save", { dir });
   if (!res.data.ok || !res.data.path) {
     throw new Error("保存失败");
   }
   return { saved: true, path: res.data.path, dir: res.data.dir };
 }
 
-export async function exportUserData(): Promise<{
+export async function exportUserData(exportDir?: string): Promise<{
   saved: boolean;
   path?: string;
   dir?: string;
@@ -130,7 +109,10 @@ export async function exportUserData(): Promise<{
     if (!getToken()) {
       throw new Error("尚未登录，请重启应用后再试");
     }
-    return exportOnDesktop();
+    if (!exportDir?.trim()) {
+      throw new Error("请选择保存文件夹");
+    }
+    return exportOnDesktop(exportDir);
   }
 
   const res = await dataApi.export();
