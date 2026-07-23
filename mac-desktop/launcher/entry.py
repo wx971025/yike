@@ -459,11 +459,34 @@ def _open_browser_fallback(url: str) -> None:
         pass
 
 
+def _configure_ca_bundle() -> None:
+    """macOS 打包后 Python 无系统 CA 根证书，HTTPS 会 CERTIFICATE_VERIFY_FAILED。
+
+    指向 certifi 自带的证书包（SSL_CERT_FILE 会被 OpenSSL/urllib 识别），
+    覆盖本进程内所有 urllib/ssl 请求（词典下载、更新检查、镜像等）。
+    """
+    if os.environ.get("SSL_CERT_FILE"):
+        return
+    try:
+        import certifi
+
+        ca = certifi.where()
+        if ca and os.path.exists(ca):
+            os.environ["SSL_CERT_FILE"] = ca
+            os.environ.setdefault("REQUESTS_CA_BUNDLE", ca)
+            logger.info("已配置 CA 证书包: %s", ca)
+        else:
+            logger.warning("certifi 证书文件不存在: %s", ca)
+    except Exception:
+        logger.warning("配置 certifi CA 证书失败，HTTPS 可能无法校验", exc_info=True)
+
+
 def main() -> None:
     runtime = _runtime_root()
     data_root = _data_root()
     _configure_logging(_logs_dir())
     logger.info("启动忆刻桌面版(macOS); frozen=%s", getattr(sys, "frozen", False))
+    _configure_ca_bundle()
     port = _configure_environment(runtime, data_root)
     os.environ["YIKE_PORT"] = str(port)
 

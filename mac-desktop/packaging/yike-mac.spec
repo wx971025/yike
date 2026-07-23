@@ -86,6 +86,7 @@ hiddenimports = [
     "multipart",
     "jose.jwt",
     "httpx",
+    "certifi",
     "sqlalchemy.ext.baked",
     "tzdata",
     "zoneinfo",
@@ -100,8 +101,8 @@ hiddenimports = [
     "PyObjCTools",
 ]
 
-# 完整收集 pywebview 及其 cocoa/pyobjc 原生依赖
-for pkg in ("webview", "objc", "WebKit", "AppKit", "Foundation", "Quartz", "Security"):
+# 完整收集 pywebview 及其 cocoa/pyobjc 原生依赖，以及 certifi 的 CA 证书包
+for pkg in ("webview", "objc", "WebKit", "AppKit", "Foundation", "Quartz", "Security", "certifi"):
     try:
         pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
         datas += pkg_datas

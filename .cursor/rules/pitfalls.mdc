@@ -18,6 +18,11 @@ alwaysApply: true
 
 ## 记录
 
+### 2026-07-23 · macOS 桌面版下载词典 CERTIFICATE_VERIFY_FAILED
+
+- **原因**：PyInstaller 打包的 macOS Python 无系统 CA 根证书（OpenSSL `load_default_certs` 在 app bundle 内找不到证书路径），所有 HTTPS（词典下载 `urlretrieve`、更新检查、镜像 `urlopen`）报 `SSL: CERTIFICATE_VERIFY_FAILED unable to get local issuer certificate`；Windows 因 Python 会读系统证书存储而正常。
+- **解决路线**：`mac-desktop/launcher/entry.py` 在 `main()` 早期 `_configure_ca_bundle()` 把 `SSL_CERT_FILE`（+`REQUESTS_CA_BUNDLE`）指向 `certifi.where()`，单进程内覆盖后端与启动器所有 urllib/ssl 请求（仍做证书校验，安全）；`requirements-build.txt` 显式加 `certifi`，`yike-mac.spec` 加 `certifi` hiddenimport + `collect_all` 打包 `cacert.pem`。v1.1.14 发版。
+
 ### 2026-07-23 · 全新数据库首启崩溃（迁移顺序：reminders 表未建就 ALTER）
 
 - **原因**：`backend/app/main.py` 迁移调用顺序里，`migrate_reminder_group_id_v1()`（`ALTER TABLE reminders ADD COLUMN group_id`）和 `migrate_assign_default_groups_v1()` 排在创建表的 `migrate_reminders_v1()` 之前。`reminders` 不是 ORM 模型（不由 `create_all` 建），只由该迁移建表；老库早已有表故无感，但**全新空库**（桌面版每次首装、Web 全新部署）会 `sqlite3.OperationalError: no such table: reminders`，后端线程崩溃→健康检查不过→桌面版进程在 Dock 但不弹窗。
