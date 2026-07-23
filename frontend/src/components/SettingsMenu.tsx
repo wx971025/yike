@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { dataApi } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useTheme, type Theme } from "../context/ThemeContext";
+import { exportUserData } from "../utils/dataTransfer";
 import { displayName } from "../utils/userProfile";
 import { GearIcon } from "./ItemIcons";
 import UserAvatar from "./UserAvatar";
@@ -57,21 +58,10 @@ export default function SettingsMenu({ onOpenAiConfig }: SettingsMenuProps) {
     if (busy) return;
     setBusy("export");
     try {
-      const res = await dataApi.export();
-      const blob = new Blob([res.data], { type: "application/json" });
-      const disposition = res.headers?.["content-disposition"] ?? "";
-      const match = /filename="?([^"]+)"?/.exec(disposition);
-      const filename =
-        match?.[1] ??
-        `yike-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const result = await exportUserData();
+      if (result.saved && result.path) {
+        window.alert(`导出成功，已保存到：\n${result.path}`);
+      }
     } catch {
       window.alert("导出失败，请稍后重试");
     } finally {

@@ -94,6 +94,11 @@ alwaysApply: false
 
 <!-- 在此追加新条目，最新的放在最上面 -->
 
+### 2026-07-23 · 桌面版数据导出无反应
+
+- **原因**：WebView2 内 `<a download>` + Blob URL 不会触发系统保存对话框，点击导出看似成功但文件不会落盘。
+- **解决路线**：launcher 通过 `js_api.save_export` 调原生 `FileDialog.SAVE` 写文件；前端桌面模式走 `window.pywebview.api.save_export`，Web 版仍用浏览器下载。
+
 ### 2026-07-23 · 桌面版关闭窗口即退出
 
 - **原因**：pywebview 默认关闭窗口会销毁进程；后端在 daemon 线程，主线程退出后一并结束。

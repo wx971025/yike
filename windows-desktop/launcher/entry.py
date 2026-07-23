@@ -170,6 +170,51 @@ def _tray_icon_path() -> Path:
     raise FileNotFoundError("未找到托盘图标 icon.ico / logo.png")
 
 
+class _DesktopBridge:
+    """供前端通过 window.pywebview.api 调用的桌面能力。"""
+
+    def save_export(self, content: str, filename: str) -> dict:
+        try:
+            import webview
+        except Exception as exc:
+            logger.exception("导出时无法加载 pywebview")
+            return {"ok": False, "error": str(exc)}
+
+        if not webview.windows:
+            return {"ok": False, "error": "窗口未就绪"}
+
+        safe_name = Path(filename).name or "yike-backup.json"
+        if not safe_name.lower().endswith(".json"):
+            safe_name = f"{safe_name}.json"
+
+        try:
+            result = webview.windows[0].create_file_dialog(
+                webview.FileDialog.SAVE,
+                save_filename=safe_name,
+                file_types=("备份文件 (*.json)", "All files (*.*)"),
+            )
+        except Exception as exc:
+            logger.exception("打开保存对话框失败")
+            return {"ok": False, "error": str(exc)}
+
+        if not result:
+            return {"ok": False, "cancelled": True}
+
+        target = result[0] if isinstance(result, (tuple, list)) else result
+        target_path = Path(str(target))
+        if target_path.suffix.lower() != ".json":
+            target_path = target_path.with_suffix(".json")
+
+        try:
+            target_path.write_text(content, encoding="utf-8")
+        except Exception as exc:
+            logger.exception("写入导出文件失败: %s", target_path)
+            return {"ok": False, "error": str(exc)}
+
+        logger.info("数据已导出: %s", target_path)
+        return {"ok": True, "path": str(target_path)}
+
+
 def _start_tray_icon(
     *,
     on_open,
@@ -263,7 +308,12 @@ def _open_native_window(url: str, storage_path: Path) -> bool:
 
     try:
         window = webview.create_window(
-            "忆刻 YiKe", url, width=1280, height=860, min_size=(960, 640)
+            "忆刻 YiKe",
+            url,
+            width=1280,
+            height=860,
+            min_size=(960, 640),
+            js_api=_DesktopBridge(),
         )
         window_ref["window"] = window
         if tray_thread is not None:
