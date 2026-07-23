@@ -95,6 +95,11 @@ alwaysApply: true
 
 <!-- 在此追加新条目，最新的放在最上面 -->
 
+### 2026-07-23 · 首次安装 ucrtbase.dll MoveFile code 5（非仅应用内更新）
+
+- **原因**：用户反馈为**第一次安装**到 `D:\YiKe` 即失败。除「忆刻仍在托盘占用 `_internal`」外，更常见的是：PyInstaller **UPX 压缩** CRT/Python DLL 触发杀毒扫描并短暂锁文件；或目标目录已有**上次失败残留** / 用户曾从同路径运行便携版 `YiKe.exe`。
+- **解决路线**：`yike.spec` 关闭 UPX；Inno `[Files]` 加 `restartreplace`、`SetupMutex`；`PrepareToInstall` 里 `taskkill` + 等待数秒（含 `_internal` 已存在时再等）；`InitializeSetup` 检测 `YiKeDesktopMutex` 并提示退出。v1.1.2 发版。
+
 ### 2026-07-23 · 应用内更新安装时 ucrtbase.dll 拒绝访问
 
 - **原因**：旧逻辑先 `POST /update/install` 启动 Inno，再退出应用；YiKe 仍在托盘运行，PyInstaller `_internal` 下 DLL 被占用，MoveFile 失败 code 5。
