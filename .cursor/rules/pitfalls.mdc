@@ -18,6 +18,11 @@ alwaysApply: true
 
 ## 记录
 
+### 2026-07-23 · AI 配置「测试连通性」无反应（title 必填 + 422 数组错误未渲染）
+
+- **原因**：两个叠加缺陷。①`AiConfigUpdate.title`/`AiConfigCreate.title` 有 `min_length=1`，且更新处理器还有 `if not config.title: 400`，导致空标题配置在「测试连通性」前的保存（`PUT /auth/ai-configs/{id}`）返回 **422**（title 只是展示标签，列表本就用「未命名配置」兜底，不该必填）；前端 `canSubmit` 也把 title 设为必填，空标题时测试按钮直接 disabled → 点击「无反应」。②前端 `setError(err.response?.data?.detail ?? ...)` 未处理 FastAPI 422 的 `detail` 是**数组**（`[{msg,loc}]`），`setError(数组)` 后 `<p>{error}</p>` 渲染对象数组 → React 崩溃/空白，错误彻底不显示，表现为「无反应」。
+- **解决路线**：后端 title 改为可选（去掉 `min_length`，`AiConfigCreate.title` 默认 `""`，更新处理器删掉 title 的 400 校验，仍校验 base_url/api_key/model）；前端加 `extractErrorMessage()` 把字符串/数组 `detail` 统一提取为可读文案并用于所有 catch，`canSubmit`/`handleSave` 不再要求 title。已用真实 HTTP 复现并验证 create-no-title→201、PUT 空 title→200。Web 已 deploy backend+frontend，桌面随 v1.1.15 发版。
+
 ### 2026-07-23 · macOS 桌面版下载词典 CERTIFICATE_VERIFY_FAILED
 
 - **原因**：PyInstaller 打包的 macOS Python 无系统 CA 根证书（OpenSSL `load_default_certs` 在 app bundle 内找不到证书路径），所有 HTTPS（词典下载 `urlretrieve`、更新检查、镜像 `urlopen`）报 `SSL: CERTIFICATE_VERIFY_FAILED unable to get local issuer certificate`；Windows 因 Python 会读系统证书存储而正常。

@@ -59,14 +59,14 @@ class AiConfigApiKeyOut(BaseModel):
 
 
 class AiConfigCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=128)
+    title: str = Field(default="", max_length=128)
     base_url: str = Field(min_length=1, max_length=512)
     api_key: str = Field(min_length=1, max_length=512)
     model: str = Field(min_length=1, max_length=128)
 
 
 class AiConfigUpdate(BaseModel):
-    title: str | None = Field(default=None, min_length=1, max_length=128)
+    title: str | None = Field(default=None, max_length=128)
     base_url: str | None = Field(default=None, max_length=512)
     api_key: str | None = Field(default=None, max_length=512)
     model: str | None = Field(default=None, max_length=128)

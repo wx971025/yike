@@ -97,8 +97,6 @@ def update_ai_config(
         if key:
             config.api_key = key
 
-    if not config.title:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请填写标题")
     if not config.base_url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="请填写 Base URL"

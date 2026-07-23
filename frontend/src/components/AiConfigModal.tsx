@@ -28,6 +28,19 @@ async function fetchAndDispatchStatus() {
   return res.data;
 }
 
+function extractErrorMessage(err: any, fallback: string): string {
+  const detail = err?.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((d: any) => (typeof d === "string" ? d : d?.msg))
+      .filter((m: any): m is string => typeof m === "string" && !!m);
+    if (msgs.length) return msgs.join("；");
+  }
+  if (typeof err?.message === "string" && err.message.trim()) return err.message;
+  return fallback;
+}
+
 export default function AiConfigModal({ onClose }: AiConfigModalProps) {
   const [view, setView] = useState<ViewMode>("list");
   const [configs, setConfigs] = useState<AiConfigItem[]>([]);
@@ -53,7 +66,7 @@ export default function AiConfigModal({ onClose }: AiConfigModalProps) {
       setConfigs(res.data);
       await fetchAndDispatchStatus();
     } catch (err: any) {
-      setError(err.response?.data?.detail ?? "加载配置失败");
+      setError(extractErrorMessage(err, "加载配置失败"));
     } finally {
       setLoading(false);
     }
@@ -92,7 +105,6 @@ export default function AiConfigModal({ onClose }: AiConfigModalProps) {
   };
 
   const canSubmit =
-    title.trim() &&
     baseUrl.trim() &&
     model.trim() &&
     (apiKey.trim() || apiKeySet);
@@ -127,10 +139,6 @@ export default function AiConfigModal({ onClose }: AiConfigModalProps) {
   };
 
   const handleSave = async () => {
-    if (!title.trim()) {
-      setError("请填写标题");
-      return;
-    }
     if (!baseUrl.trim()) {
       setError("请填写 Base URL");
       return;
@@ -154,9 +162,7 @@ export default function AiConfigModal({ onClose }: AiConfigModalProps) {
       setView("list");
       resetForm();
     } catch (err: any) {
-      setError(
-        err.response?.data?.detail ?? err.message ?? "保存失败，请稍后再试"
-      );
+      setError(extractErrorMessage(err, "保存失败，请稍后再试"));
     } finally {
       setSaving(false);
     }
@@ -183,7 +189,7 @@ export default function AiConfigModal({ onClose }: AiConfigModalProps) {
       setView("list");
       resetForm();
     } catch (err: any) {
-      setError(err.response?.data?.detail ?? "连通测试失败");
+      setError(extractErrorMessage(err, "连通测试失败"));
       await loadConfigs();
     } finally {
       setTesting(false);
@@ -196,7 +202,7 @@ export default function AiConfigModal({ onClose }: AiConfigModalProps) {
       await authApi.activateAiConfig(id);
       await loadConfigs();
     } catch (err: any) {
-      setError(err.response?.data?.detail ?? "切换配置失败");
+      setError(extractErrorMessage(err, "切换配置失败"));
     }
   };
 
@@ -212,7 +218,7 @@ export default function AiConfigModal({ onClose }: AiConfigModalProps) {
       });
       await loadConfigs();
     } catch (err: any) {
-      setError(err.response?.data?.detail ?? "删除失败");
+      setError(extractErrorMessage(err, "删除失败"));
     }
   };
 
@@ -231,7 +237,7 @@ export default function AiConfigModal({ onClose }: AiConfigModalProps) {
       const res = await authApi.revealAiConfigApiKey(item.id);
       setRevealedKeys((prev) => ({ ...prev, [item.id]: res.data.api_key }));
     } catch (err: any) {
-      setError(err.response?.data?.detail ?? "获取 API Key 失败");
+      setError(extractErrorMessage(err, "获取 API Key 失败"));
     } finally {
       setRevealingId(null);
     }
