@@ -12,7 +12,7 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from ..auth import create_access_token, hash_password
@@ -49,17 +49,32 @@ def _prefs_path() -> Path:
 
 def _load_prefs() -> dict:
     path = _prefs_path()
+    default: dict = {"onboarding_completed": [], "export_dir": None}
     if not path.is_file():
-        return {"onboarding_completed": []}
+        return default
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            completed = data.get("onboarding_completed", [])
-            if isinstance(completed, list):
-                return {"onboarding_completed": completed}
+        if not isinstance(data, dict):
+            return default
+        completed = data.get("onboarding_completed", [])
+        if not isinstance(completed, list):
+            completed = []
+        export_dir = data.get("export_dir")
+        if export_dir is not None and not isinstance(export_dir, str):
+            export_dir = None
+        return {"onboarding_completed": completed, "export_dir": export_dir}
     except Exception:
         logger.exception("读取 desktop_prefs.json 失败")
-    return {"onboarding_completed": []}
+    return default
+
+
+def _get_export_dir_from_prefs() -> Path | None:
+    export_dir = _load_prefs().get("export_dir")
+    if isinstance(export_dir, str) and export_dir.strip():
+        path = Path(export_dir)
+        if path.is_dir():
+            return path
+    return None
 
 
 def _save_prefs(data: dict) -> None:
@@ -93,7 +108,7 @@ def _unique_path(directory: Path, filename: str) -> Path:
 
 
 def _write_export_file(payload: dict, filename: str, directory: Path | None = None) -> Path:
-    target_dir = directory or _downloads_dir()
+    target_dir = directory or _get_export_dir_from_prefs() or _downloads_dir()
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = _unique_path(target_dir, filename)
     target_path.write_text(
@@ -176,6 +191,31 @@ def mark_onboarding_preference(user_id: int, request: Request):
     return {"completed": True}
 
 
+@router.get("/preferences/export-dir")
+def get_export_dir_preference(request: Request):
+    _require_desktop(request)
+    export_dir = _get_export_dir_from_prefs()
+    return {"dir": str(export_dir) if export_dir else None}
+
+
+@router.post("/preferences/export-dir")
+def set_export_dir_preference(request: Request, payload: dict = Body(...)):
+    _require_desktop(request)
+    raw_dir = payload.get("dir") if isinstance(payload, dict) else None
+    if not isinstance(raw_dir, str) or not raw_dir.strip():
+        raise HTTPException(status_code=400, detail="请提供有效的文件夹路径")
+
+    folder = Path(raw_dir.strip())
+    if not folder.is_dir():
+        raise HTTPException(status_code=400, detail="所选路径不是有效文件夹")
+
+    prefs = _load_prefs()
+    prefs["export_dir"] = str(folder)
+    _save_prefs(prefs)
+    logger.info("桌面版导出目录已设置: %s", folder)
+    return {"dir": str(folder)}
+
+
 @router.get("/data/export")
 def desktop_export_data(request: Request):
     _require_desktop(request)
@@ -190,14 +230,25 @@ def desktop_export_data(request: Request):
 @router.post("/data/export/save")
 def desktop_export_save(request: Request):
     _require_desktop(request)
+    export_dir = _get_export_dir_from_prefs()
+    if export_dir is None:
+        raise HTTPException(
+            status_code=400,
+            detail="请先设置导出文件夹",
+        )
     db = SessionLocal()
     try:
         user = _ensure_default_user(db)
         payload = build_export_payload(user, db)
         filename = default_export_filename()
-        target_path = _write_export_file(payload, filename)
+        target_path = _write_export_file(payload, filename, export_dir)
         logger.info("桌面版数据已导出: %s", target_path)
-        return {"ok": True, "path": str(target_path), "filename": target_path.name}
+        return {
+            "ok": True,
+            "path": str(target_path),
+            "filename": target_path.name,
+            "dir": str(export_dir),
+        }
     finally:
         db.close()
 

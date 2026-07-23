@@ -79,9 +79,10 @@ chmod +x sync-source.sh build-linux-prep.sh
 1. 安装 `YiKeSetup.exe` 或运行 `output/stage/YiKe/YiKe.exe`
 2. 自动打开原生窗口，免登录进入主界面
 3. 点击窗口关闭按钮会**隐藏到系统托盘**，程序继续在后台运行；托盘菜单可「打开忆刻」或「退出」
-4. 使用词典功能时，若未下载会提示前往「下载管理」
-5. 用户数据：`%LOCALAPPDATA%\YiKe\data\`
-6. 日志：`%LOCALAPPDATA%\YiKe\logs\`
+4. 首次**导出数据**时会引导选择备份保存文件夹，之后自动保存到该目录；可在设置中「设置导出文件夹」修改
+5. 使用词典功能时，若未下载会提示前往「下载管理」
+6. 用户数据：`%LOCALAPPDATA%\YiKe\data\`
+7. 日志：`%LOCALAPPDATA%\YiKe\logs\`
 
 ## 目录结构
 

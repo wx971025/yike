@@ -174,21 +174,31 @@ def _tray_icon_path() -> Path:
 class _DesktopBridge:
     """供前端通过 window.pywebview.api 调用的桌面能力。"""
 
-    def _fetch_export_payload(self) -> tuple[dict, str]:
+    def _api_json(self, path: str, *, method: str = "GET", payload: dict | None = None) -> dict:
         port = int(os.environ.get("YIKE_PORT", "17890"))
-        url = f"http://127.0.0.1:{port}/api/desktop/data/export"
-        with urllib.request.urlopen(url, timeout=120) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
+        url = f"http://127.0.0.1:{port}{path}"
+        data = None
+        headers = {"Content-Type": "application/json"}
+        if payload is not None:
+            data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, method=method, headers=headers)
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            body = resp.read().decode("utf-8")
+            return json.loads(body) if body else {}
+
+    def _fetch_export_payload(self) -> tuple[dict, str]:
+        payload = self._api_json("/api/desktop/data/export")
         filename = f"yike-backup-{time.strftime('%Y%m%d-%H%M%S')}.json"
         return payload, filename
 
-    def _downloads_dir(self) -> Path:
-        userprofile = os.environ.get("USERPROFILE")
-        if userprofile:
-            downloads = Path(userprofile) / "Downloads"
-            if downloads.is_dir():
-                return downloads
-        return Path.home() / "Downloads"
+    def _get_export_dir(self) -> Path | None:
+        data = self._api_json("/api/desktop/preferences/export-dir")
+        dir_str = data.get("dir")
+        if isinstance(dir_str, str) and dir_str.strip():
+            path = Path(dir_str)
+            if path.is_dir():
+                return path
+        return None
 
     def _unique_path(self, directory: Path, filename: str) -> Path:
         directory.mkdir(parents=True, exist_ok=True)
@@ -204,12 +214,60 @@ class _DesktopBridge:
                 return candidate
             index += 1
 
-    def save_export(self, filename: str = "") -> dict:
+    def get_export_dir(self) -> dict:
+        export_dir = self._get_export_dir()
+        return {"ok": True, "dir": str(export_dir) if export_dir else None}
+
+    def choose_export_dir(self) -> dict:
         try:
             import webview
         except Exception as exc:
-            logger.exception("导出时无法加载 pywebview")
+            logger.exception("选择导出目录时无法加载 pywebview")
             return {"ok": False, "error": str(exc)}
+
+        if not webview.windows:
+            return {"ok": False, "error": "窗口未就绪"}
+
+        current = self._get_export_dir()
+        initial = str(current) if current else ""
+
+        try:
+            result = webview.windows[0].create_file_dialog(
+                webview.FileDialog.FOLDER,
+                directory=initial,
+            )
+        except Exception as exc:
+            logger.exception("打开文件夹选择对话框失败")
+            return {"ok": False, "error": str(exc)}
+
+        if not result:
+            return {"ok": False, "cancelled": True}
+
+        folder = result[0] if isinstance(result, (tuple, list)) else result
+        folder_path = Path(str(folder))
+        if not folder_path.is_dir():
+            return {"ok": False, "error": "所选路径不是有效文件夹"}
+
+        try:
+            saved = self._api_json(
+                "/api/desktop/preferences/export-dir",
+                method="POST",
+                payload={"dir": str(folder_path)},
+            )
+        except Exception as exc:
+            logger.exception("保存导出目录失败")
+            return {"ok": False, "error": str(exc)}
+
+        logger.info("导出目录已设置: %s", folder_path)
+        return {"ok": True, "dir": saved.get("dir", str(folder_path))}
+
+    def save_export(self, filename: str = "") -> dict:
+        export_dir = self._get_export_dir()
+        if export_dir is None:
+            picked = self.choose_export_dir()
+            if not picked.get("ok"):
+                return picked
+            export_dir = Path(str(picked["dir"]))
 
         try:
             payload, default_name = self._fetch_export_payload()
@@ -223,46 +281,15 @@ class _DesktopBridge:
 
         content = json.dumps(payload, ensure_ascii=False, indent=2)
 
-        if webview.windows:
-            dialog_error = ""
-            result = None
-            try:
-                result = webview.windows[0].create_file_dialog(
-                    webview.FileDialog.SAVE,
-                    save_filename=safe_name,
-                    file_types=("备份文件 (*.json)", "All files (*.*)"),
-                )
-            except Exception as exc:
-                logger.exception("打开保存对话框失败，将保存到「下载」文件夹")
-                dialog_error = str(exc)
-
-            if result:
-                target = result[0] if isinstance(result, (tuple, list)) else result
-                target_path = Path(str(target))
-                if target_path.suffix.lower() != ".json":
-                    target_path = target_path.with_suffix(".json")
-                try:
-                    target_path.write_text(content, encoding="utf-8")
-                except Exception as exc:
-                    logger.exception("写入导出文件失败: %s", target_path)
-                    return {"ok": False, "error": str(exc)}
-                logger.info("数据已导出: %s", target_path)
-                return {"ok": True, "path": str(target_path)}
-
-            if not dialog_error:
-                return {"ok": False, "cancelled": True}
-
-            logger.warning("保存对话框不可用，降级到 Downloads: %s", dialog_error)
-
         try:
-            target_path = self._unique_path(self._downloads_dir(), safe_name)
+            target_path = self._unique_path(export_dir, safe_name)
             target_path.write_text(content, encoding="utf-8")
         except Exception as exc:
-            logger.exception("写入 Downloads 导出文件失败")
+            logger.exception("写入导出文件失败: %s", export_dir)
             return {"ok": False, "error": str(exc)}
 
-        logger.info("数据已导出到 Downloads: %s", target_path)
-        return {"ok": True, "path": str(target_path), "fallback": True}
+        logger.info("数据已导出: %s", target_path)
+        return {"ok": True, "path": str(target_path), "dir": str(export_dir)}
 
 
 def _start_tray_icon(

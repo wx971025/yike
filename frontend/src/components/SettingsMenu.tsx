@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { dataApi } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useTheme, type Theme } from "../context/ThemeContext";
-import { exportUserData, formatExportError } from "../utils/dataTransfer";
+import { exportUserData, chooseDesktopExportDir, formatExportError, getDesktopExportDir } from "../utils/dataTransfer";
+import { isDesktopApp } from "../utils/onboarding";
 import { displayName } from "../utils/userProfile";
 import { GearIcon } from "./ItemIcons";
 import UserAvatar from "./UserAvatar";
@@ -50,7 +51,7 @@ export default function SettingsMenu({ onOpenAiConfig }: SettingsMenuProps) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [busy, setBusy] = useState<null | "export" | "import">(null);
+  const [busy, setBusy] = useState<null | "export" | "import" | "export-dir">(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -60,7 +61,32 @@ export default function SettingsMenu({ onOpenAiConfig }: SettingsMenuProps) {
     try {
       const result = await exportUserData();
       if (result.saved && result.path) {
-        window.alert(`导出成功，已保存到：\n${result.path}`);
+        const folderHint = result.dir ? `\n\n备份文件夹：${result.dir}` : "";
+        window.alert(`导出成功，已保存到：\n${result.path}${folderHint}`);
+      }
+    } catch (err) {
+      window.alert(formatExportError(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleChooseExportDir = async () => {
+    if (busy || !isDesktopApp()) return;
+    setBusy("export-dir");
+    try {
+      const current = await getDesktopExportDir();
+      if (current) {
+        const change = window.confirm(
+          `当前导出文件夹：\n${current}\n\n是否要更换为其他文件夹？`
+        );
+        if (!change) {
+          return;
+        }
+      }
+      const picked = await chooseDesktopExportDir();
+      if (picked.ok && picked.dir) {
+        window.alert(`导出文件夹已设置为：\n${picked.dir}`);
       }
     } catch (err) {
       window.alert(formatExportError(err));
@@ -151,6 +177,16 @@ export default function SettingsMenu({ onOpenAiConfig }: SettingsMenuProps) {
               >
                 {busy === "export" ? "正在导出…" : "导出数据"}
               </button>
+              {isDesktopApp() && (
+                <button
+                  type="button"
+                  onClick={handleChooseExportDir}
+                  disabled={busy !== null}
+                  className="w-full px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  {busy === "export-dir" ? "正在选择…" : "设置导出文件夹"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleImportClick}
