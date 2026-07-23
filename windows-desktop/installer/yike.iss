@@ -18,11 +18,12 @@ OutputBaseFilename=YiKeSetup
 SetupIconFile=..\assets\icon.ico
 UninstallDisplayIcon={app}\{#MyAppIconName}
 Compression=lzma2
-SolidCompression=yes
+SolidCompression=no
 WizardStyle=modern
+MinVersion=10.0
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog
 CloseApplications=force
 AppMutex=YiKeDesktopMutex
@@ -34,8 +35,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
 
+[InstallDelete]
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
-Source: "..\output\stage\YiKe\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs restartreplace
+Source: "..\output\stage\YiKe\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs restartreplace uninsrestartdelete
 
 [Icons]
 Name: "{group}\{#MyAppDisplayName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppIconName}"
@@ -52,7 +56,6 @@ procedure WaitSeconds(Seconds: Integer);
 var
   ResultCode: Integer;
 begin
-  { ping -n (N+1) ≈ 等待 N 秒 }
   Exec('cmd.exe', ExpandConstant('/c ping 127.0.0.1 -n ' + IntToStr(Seconds + 1) + ' >nul'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
@@ -62,6 +65,18 @@ var
 begin
   Exec('taskkill', '/IM YiKe.exe /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   WaitSeconds(3);
+end;
+
+procedure RemoveStaleInternal(const AppDir: String);
+var
+  ResultCode: Integer;
+  InternalDir: String;
+begin
+  InternalDir := AppDir + '\_internal';
+  if not DirExists(InternalDir) then
+    Exit;
+  Exec('cmd.exe', ExpandConstant('/c rd /s /q "' + InternalDir + '"'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  WaitSeconds(2);
 end;
 
 function InitializeSetup(): Boolean;
@@ -105,9 +120,9 @@ begin
     Exit;
   end;
 
-  { 上次安装失败可能留下 _internal；再等几秒，避免杀毒扫描刚写入的 DLL 时 MoveFile 失败 }
-  if DirExists(AppDir + '\_internal') then
-    WaitSeconds(2);
+  RemoveStaleInternal(AppDir);
+  { 给杀毒/索引释放文件句柄的时间，减轻 MoveFile code 5 }
+  WaitSeconds(5);
 
   Result := '';
 end;

@@ -105,6 +105,13 @@ alwaysApply: true
 - **原因**：`yike.iss` 中 `procedure KillYiKeProcesses()` 空括号不符合 Inno Pascal 语法，ISCC 编译失败；`build.ps1` 未检查 ISCC 退出码，构建步骤仍显示成功。
 - **解决路线**：改为 `procedure KillYiKeProcesses;`；`build.ps1` 在 ISCC 非零或未产出安装包时 `throw`；移除无效的 `AllowMultipleInstances` 指令。v1.1.3 发版。
 
+<!-- 在此追加新条目，最新的放在最上面 -->
+
+### 2026-07-23 · 首次安装 ucrtbase.dll 仍失败（v1.1.6 二次修复）
+
+- **原因**：Win10+ 实际加载系统 UCRT，但 PyInstaller 仍把 `ucrtbase.dll` 打进 `_internal`；Inno **SolidCompression** 批量 MoveFile 时易被杀毒/索引锁住。用户装到 `D:\YiKe` 时，`PrivilegesRequired=lowest` 也可能加剧写入失败。
+- **解决路线**：`yike.spec` 过滤 `ucrtbase.dll` 与 `api-ms-win-crt/core*`；Inno `SolidCompression=no`、`PrivilegesRequired=admin`、`[InstallDelete]` 清 `_internal`、安装前 `rd` + 等待 5s。v1.1.6 发版。
+
 ### 2026-07-23 · 首次安装 ucrtbase.dll MoveFile code 5（非仅应用内更新）
 
 - **原因**：用户反馈为**第一次安装**到 `D:\YiKe` 即失败。除「忆刻仍在托盘占用 `_internal`」外，更常见的是：PyInstaller **UPX 压缩** CRT/Python DLL 触发杀毒扫描并短暂锁文件；或目标目录已有**上次失败残留** / 用户曾从同路径运行便携版 `YiKe.exe`。

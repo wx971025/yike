@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller 配置：onedir 内含前端 dist + 后端 app + tzdata + pywebview 依赖。"""
 
+import os
 from pathlib import Path
 
 import tzdata
@@ -11,6 +12,25 @@ block_cipher = None
 ROOT = Path(SPECPATH)
 PKG = ROOT.parent
 WORKSPACE = PKG / "workspace"
+
+_WIN10_SYSTEM_DLLS = frozenset(
+    {
+        "ucrtbase.dll",
+        "ucrtbase_enclave.dll",
+    }
+)
+
+
+def _should_skip_win10_system_dll(path: str) -> bool:
+    """Windows 10+ 强制使用系统 UCRT，无需（也不应）打进 _internal。"""
+    name = os.path.basename(path).lower()
+    if name in _WIN10_SYSTEM_DLLS:
+        return True
+    return name.startswith("api-ms-win-crt") or name.startswith("api-ms-win-core")
+
+
+def _filter_binaries(items):
+    return [item for item in items if not _should_skip_win10_system_dll(item[0])]
 
 backend_app = WORKSPACE / "backend" / "app"
 frontend_dist = WORKSPACE / "frontend" / "dist"
@@ -109,6 +129,8 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
+
+a.binaries = _filter_binaries(a.binaries)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
