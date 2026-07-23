@@ -18,6 +18,11 @@ alwaysApply: true
 
 ## 记录
 
+### 2026-07-23 · 全新数据库首启崩溃（迁移顺序：reminders 表未建就 ALTER）
+
+- **原因**：`backend/app/main.py` 迁移调用顺序里，`migrate_reminder_group_id_v1()`（`ALTER TABLE reminders ADD COLUMN group_id`）和 `migrate_assign_default_groups_v1()` 排在创建表的 `migrate_reminders_v1()` 之前。`reminders` 不是 ORM 模型（不由 `create_all` 建），只由该迁移建表；老库早已有表故无感，但**全新空库**（桌面版每次首装、Web 全新部署）会 `sqlite3.OperationalError: no such table: reminders`，后端线程崩溃→健康检查不过→桌面版进程在 Dock 但不弹窗。
+- **解决路线**：把 `migrate_reminders_v1()` 提到 `migrate_reminder_group_id_v1()` 之前（各迁移由 `schema_meta`/列存在性守护，重排对老库幂等安全）。已在容器内用全新 sqlite 验证 `import app.main` 不再报错。v1.1.13 发版。
+
 ### 2026-07-23 · 新增 macOS 桌面版（mac-desktop）
 
 - **原因**：需在 Windows 版之外提供 Mac 原生 .app/.dmg；Linux 无法交叉编译 macOS 应用，pywebview 在 Mac 用 WKWebView(cocoa/pyobjc) 而非 WebView2/pythonnet，`pystray` 托盘与 cocoa 主线程 run loop 冲突。
