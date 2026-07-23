@@ -95,6 +95,11 @@ alwaysApply: true
 
 <!-- 在此追加新条目，最新的放在最上面 -->
 
+### 2026-07-23 · 应用内更新安装时 ucrtbase.dll 拒绝访问
+
+- **原因**：旧逻辑先 `POST /update/install` 启动 Inno，再退出应用；YiKe 仍在托盘运行，PyInstaller `_internal` 下 DLL 被占用，MoveFile 失败 code 5。
+- **解决路线**：`run_update_installer` 先写 `%TEMP%\YiKe\run-update-*.cmd` 延迟 3 秒启动安装包，再立即 `_shutdown_desktop_app()`；Inno 增加 `CloseApplications=force`、`AppMutex=YiKeDesktopMutex` 与 `PrepareToInstall` 里 `taskkill /IM YiKe.exe /F`。
+
 ### 2026-07-23 · 桌面版应用内更新需先退出进程
 
 - **原因**：YiKe 关闭窗口会隐藏到托盘，后端与 WebView 进程仍占用安装目录；Inno 覆盖文件时可能失败或需用户手动结束进程。

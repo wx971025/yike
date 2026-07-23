@@ -5,8 +5,6 @@ import json
 import logging
 import os
 import secrets
-import subprocess
-import sys
 import tempfile
 import threading
 import urllib.error
@@ -700,6 +698,7 @@ def desktop_update_status(request: Request):
 
 @router.post("/update/install")
 def desktop_update_install(request: Request):
+    """返回安装包路径；实际安装须由 launcher.run_update_installer 在退出后启动。"""
     _require_desktop(request)
     with _update_lock:
         installer_path = Path(_update_state.file_path) if _update_state.file_path else None
@@ -707,14 +706,4 @@ def desktop_update_install(request: Request):
             raise HTTPException(status_code=400, detail="更新包尚未准备就绪")
         target = installer_path
 
-    if os.name != "nt":
-        raise HTTPException(status_code=400, detail="仅支持 Windows 安装")
-
-    creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    subprocess.Popen(
-        [str(target), "/CLOSEAPPLICATIONS"],
-        close_fds=True,
-        creationflags=creationflags,
-    )
-    logger.info("已启动安装程序: %s", target)
     return {"ok": True, "installer": str(target)}

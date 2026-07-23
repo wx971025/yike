@@ -23,6 +23,8 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
+CloseApplications=force
+AppMutex=YiKeDesktopMutex
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -42,3 +44,13 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{localappdata}\YiKe\logs"
+
+[Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  { 升级前结束可能仍在托盘驻留的旧进程，避免 _internal 下 DLL 拒绝访问 }
+  Exec('taskkill', '/IM YiKe.exe /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := '';
+end;

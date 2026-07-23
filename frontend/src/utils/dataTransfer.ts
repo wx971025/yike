@@ -23,6 +23,9 @@ declare global {
         }>;
         get_app_version?: () => Promise<{ ok?: boolean; version?: string }>;
         quit_for_update?: () => Promise<{ ok?: boolean }>;
+        run_update_installer?: (
+          installerPath: string
+        ) => Promise<{ ok?: boolean; error?: string }>;
       };
     };
   }

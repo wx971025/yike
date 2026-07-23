@@ -73,8 +73,29 @@ export async function fetchDesktopUpdateStatus(): Promise<DesktopUpdateStatus> {
   return parseJson<DesktopUpdateStatus>(res);
 }
 
-export async function installDesktopUpdate(): Promise<void> {
-  await parseJson(await fetch("/api/desktop/update/install", { method: "POST" }));
+export async function installDesktopUpdate(): Promise<{ installer: string }> {
+  return parseJson(
+    await fetch("/api/desktop/update/install", { method: "POST" })
+  );
+}
+
+export async function runDesktopUpdateInstaller(installerPath: string): Promise<void> {
+  const api = window.pywebview?.api as
+    | {
+        run_update_installer?: (
+          path: string
+        ) => Promise<{ ok?: boolean; error?: string }>;
+      }
+    | undefined;
+  const run = api?.run_update_installer;
+  if (typeof run === "function") {
+    const res = await run(installerPath);
+    if (!res.ok) {
+      throw new Error(res.error || "启动安装失败");
+    }
+    return;
+  }
+  throw new Error("当前环境不支持应用内安装，请手动运行下载的安装包");
 }
 
 export async function quitDesktopAppForUpdate(): Promise<void> {

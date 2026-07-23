@@ -183,25 +183,26 @@ git tag -a v1.0.1 -m "v1.0.1 — 简短说明"
 git push origin v1.0.0   # 替换为你的新版本号
 ```
 
-**tag 必须指向包含 `.github/release-notes/vX.Y.Z.md` 的 commit。**
-
+# 确保当前 HEAD 就是要发布的 commit
+git checkout main
+git pull origin main
 ---
-
 ### 阶段 5：推送 tag（触发 Release CI）
-
-**命令：**
+git push origin v1.0.0   # 替换为你的新版本号
 
 ```bash
-git push origin vX.Y.Z
+git push origin vX.Y.Z   # 把本地 tag 推到 GitHub；v* 格式会触发 release-desktop.yml
 ```
 
 **若需把已有 tag 移到最新 main（v1.0.0 实际做过两次）：**
 
 ```bash
-git checkout main
-git pull origin main
-git tag -f v1.0.0
-git push origin v1.0.0 --force
+git checkout main        # 切到最新 main
+git pull origin main     # 拉取包含修复/workflow/release notes 的最新 commit
+
+git tag -f v1.0.0        # -f：把已有 tag 强制移到当前 HEAD（修正 tag 指错 commit 时用）
+
+git push origin v1.0.0 --force   # 强制更新远程 tag，重新触发 Release CI（只 force tag，不要 force main）
 ```
 
 **⚠️ 只 force-push tag，不要 `git push --force origin main`。**
@@ -240,11 +241,13 @@ git push origin v1.0.0 --force
 #### 6.2 用 API 轮询（可选，命令行）
 
 ```bash
-# 查看最新一次 release 工作流
+# 查询 release-desktop 工作流最近一次运行状态（无需 gh 登录，公开 API）
 curl -s "https://api.github.com/repos/wx971025/yike/actions/workflows/release-desktop.yml/runs?per_page=1" \
   | python3 -c "import sys,json; r=json.load(sys.stdin)['workflow_runs'][0]; print(r['status'], r['conclusion'], r['html_url'])"
+# 输出示例：completed success https://github.com/.../actions/runs/12345
+# status=运行中/已完成，conclusion=success/failure/null（未完成时为 null）
 
-# 查看指定 run（替换 RUN_ID）
+# 查询指定某次 run 的详情（把 RUN_ID 换成 Actions 页 URL 里的数字）
 curl -s "https://api.github.com/repos/wx971025/yike/actions/runs/RUN_ID" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['status'], d['conclusion'])"
 ```
@@ -254,6 +257,7 @@ curl -s "https://api.github.com/repos/wx971025/yike/actions/runs/RUN_ID" \
 #### 6.3 验证 Release 与安装包
 
 ```bash
+# 读取指定 tag 的 Release 信息（含附件列表与下载地址）
 curl -s "https://api.github.com/repos/wx971025/yike/releases/tags/v1.0.0" \
   | python3 -c "
 import sys,json
@@ -262,6 +266,7 @@ print('Release:', d.get('html_url'))
 for a in d.get('assets',[]):
     print(' Asset:', a['name'], round(a['size']/1024/1024,1), 'MB')
 "
+# 期望看到 YiKeSetup.exe 及文件大小；若没有 assets 说明 CI 还未成功上传
 ```
 
 **期望输出（v1.0.0 成功时）：**
@@ -283,30 +288,33 @@ Release: https://github.com/wx971025/yike/releases/tag/v1.0.0
 将 `v1.0.1` 替换为你的新版本号。
 
 ```bash
-# 0. 进入仓库
-cd /path/to/yike
-git checkout main && git pull origin main
+# ========== 0. 进入仓库并同步 main ==========
+cd /path/to/yike                    # 进入仓库根目录
+git checkout main && git pull origin main   # 切到 main 并拉最新（tag 应打在最新 commit 上）
 
-# 1. Web 部署（如有前后端变更）
-./deploy.sh
+# ========== 1. Web 部署（如有前后端变更）==========
+./deploy.sh                         # Docker 重建并重启，更新线上 Web 版
 
-# 2. 编写 Release 说明（手动编辑文件）
-#    .github/release-notes/v1.0.1.md
+# ========== 2. 编写 Release 说明（手动编辑文件）==========
+# 新建并编辑：.github/release-notes/v1.0.1.md
+# CI 会把这个文件内容作为 GitHub Release 页面正文
 
-# 3. 提交并推送 main
-git add .github/release-notes/v1.0.1.md
-git commit -m "docs: v1.0.1 release notes"
-git push origin main
+# ========== 3. 提交 release notes 并推送 main ==========
+git add .github/release-notes/v1.0.1.md   # 暂存 release 说明（文件名必须与 tag 版本一致）
+git commit -m "docs: v1.0.1 release notes" # 提交说明文件
+git push origin main                       # 推 main；确保 tag 指向的 commit 包含此文件
 
-# 4. 打 tag 并推送（触发 Release CI）
-git tag -a v1.0.1 -m "v1.0.1 — 简短说明"
-git push origin v1.0.1
+# ========== 4. 打 tag 并推送（触发 Release CI）==========
+git tag -a v1.0.1 -m "v1.0.1 — 简短说明"  # 创建 annotated tag，标记版本快照
+git push origin v1.0.1                     # 推送 tag → 自动构建 YiKeSetup.exe 并发布 Release
 
-# 5. 等待 CI（约 5–10 分钟）
-#    https://github.com/wx971025/yike/actions/workflows/release-desktop.yml
+# ========== 5. 等待 CI（约 5–10 分钟）==========
+# 打开 Actions 页查看进度：
+# https://github.com/wx971025/yike/actions/workflows/release-desktop.yml
 
-# 6. 验证 Release
-#    https://github.com/wx971025/yike/releases/tag/v1.0.1
+# ========== 6. 验证 Release ==========
+# 浏览器打开 Release 页，确认可下载 YiKeSetup.exe：
+# https://github.com/wx971025/yike/releases/tag/v1.0.1
 ```
 
 ---
@@ -345,9 +353,9 @@ git push origin v1.0.1
 - **重发方式：**
 
   ```bash
-  git push origin main          # 推送修复
-  git tag -f v1.0.0
-  git push origin v1.0.0 --force
+  git push origin main          # 先把 CI 修复推到 main
+  git tag -f v1.0.0             # 把 tag 移到包含修复的最新 commit
+  git push origin v1.0.0 --force   # 强制更新远程 tag，重新跑 Release 工作流
   ```
 
 ### 7.2 tag 指向的 commit 没有 release 工作流
@@ -408,12 +416,12 @@ git push origin v1.0.1
 
 ### 客户端行为
 
-| 能力 | 说明 |
-|------|------|
-| 当前版本 | `GET /api/desktop/version` 或设置菜单显示 |
-| 检查更新 | 对比 GitHub `releases/latest` 与本地 semver |
-| 下载 | 保存到 `%TEMP%\YiKe\updates\YiKeSetup-{version}.exe` |
-| 安装 | Inno `/CLOSEAPPLICATIONS`，需退出托盘后再覆盖程序文件 |
+| 能力     | 说明                                                   |
+| -------- | ------------------------------------------------------ |
+| 当前版本 | `GET /api/desktop/version` 或设置菜单显示            |
+| 检查更新 | 对比 GitHub`releases/latest` 与本地 semver           |
+| 下载     | 保存到`%TEMP%\YiKe\updates\YiKeSetup-{version}.exe`  |
+| 安装     | Inno`/CLOSEAPPLICATIONS`，需退出托盘后再覆盖程序文件 |
 
 ### 发版后即可被旧客户端检测到
 

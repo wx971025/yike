@@ -5,7 +5,7 @@ import {
   formatFileSize,
   formatReleaseNotes,
   installDesktopUpdate,
-  quitDesktopAppForUpdate,
+  runDesktopUpdateInstaller,
   startDesktopUpdateDownload,
   type DesktopUpdateCheckResult,
 } from "../utils/desktopUpdate";
@@ -94,8 +94,12 @@ export default function DesktopUpdateModal({
     setBusy(true);
     setError("");
     try {
+      const status = await fetchDesktopUpdateStatus();
+      if (status.status !== "ready" || !status.file_path) {
+        throw new Error("更新包尚未准备就绪");
+      }
       await installDesktopUpdate();
-      await quitDesktopAppForUpdate();
+      await runDesktopUpdateInstaller(status.file_path);
     } catch (err) {
       setError(err instanceof Error ? err.message : "启动安装失败");
       setBusy(false);

@@ -9,10 +9,12 @@ import json
 import logging
 import os
 import socket
+import subprocess
 import sys
 import threading
 import time
 import traceback
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -98,6 +100,71 @@ _shutdown_handlers: dict[str, object | None] = {
     "tray_icon": None,
     "shutting_down": False,
 }
+
+_DESKTOP_APP_MUTEX_NAME = "YiKeDesktopMutex"
+
+
+def _acquire_desktop_mutex() -> None:
+    """供 Inno Setup AppMutex / CloseApplications 识别并关闭旧实例。"""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.kernel32.CreateMutexW(None, False, _DESKTOP_APP_MUTEX_NAME)
+    except Exception:
+        logger.exception("创建 AppMutex 失败")
+
+
+def _spawn_installer_after_exit(installer: Path) -> None:
+    """应用退出后再启动安装包，避免 _internal 下 DLL 仍被占用。"""
+    helper_dir = Path(tempfile.gettempdir()) / "YiKe"
+    helper_dir.mkdir(parents=True, exist_ok=True)
+    helper = helper_dir / f"run-update-{int(time.time())}.cmd"
+    # ping -n 4 ≈ 等待 3 秒，确保 YiKe.exe 与 uvicorn 线程已释放文件句柄
+    helper.write_text(
+        "\r\n".join(
+            [
+                "@echo off",
+                "ping 127.0.0.1 -n 4 >nul",
+                f'"{installer}" /CLOSEAPPLICATIONS /NORESTARTAPPLICATIONS',
+                'del "%~f0"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    detached = getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+    no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    subprocess.Popen(
+        ["cmd.exe", "/c", str(helper)],
+        close_fds=True,
+        creationflags=detached | no_window,
+    )
+    logger.info("已安排退出后启动安装程序: %s", installer)
+
+
+def _shutdown_desktop_app(*, delay_sec: float = 0.3) -> None:
+    _shutdown_handlers["shutting_down"] = True
+
+    tray_icon = _shutdown_handlers.get("tray_icon")
+    if tray_icon is not None:
+        try:
+            tray_icon.stop()  # type: ignore[attr-defined]
+        except Exception:
+            logger.exception("停止托盘图标失败")
+
+    window = _shutdown_handlers.get("window")
+    if window is not None:
+        try:
+            window.destroy()  # type: ignore[attr-defined]
+        except Exception:
+            logger.exception("关闭窗口失败")
+
+    def _exit_later() -> None:
+        time.sleep(delay_sec)
+        os._exit(0)
+
+    threading.Thread(target=_exit_later, daemon=True).start()
 
 
 def _data_root() -> Path:
@@ -354,31 +421,19 @@ class _DesktopBridge:
         return {"ok": True, "version": os.environ.get("YIKE_APP_VERSION") or _read_app_version()}
 
     def quit_for_update(self) -> dict:
-        shutting_down = _shutdown_handlers.get("shutting_down")
-        if isinstance(shutting_down, bool):
-            _shutdown_handlers["shutting_down"] = True
-        else:
-            _shutdown_handlers["shutting_down"] = True
+        _shutdown_desktop_app()
+        return {"ok": True}
 
-        tray_icon = _shutdown_handlers.get("tray_icon")
-        if tray_icon is not None:
-            try:
-                tray_icon.stop()  # type: ignore[attr-defined]
-            except Exception:
-                logger.exception("停止托盘图标失败")
-
-        window = _shutdown_handlers.get("window")
-        if window is not None:
-            try:
-                window.destroy()  # type: ignore[attr-defined]
-            except Exception:
-                logger.exception("关闭窗口失败")
-
-        def _exit_later() -> None:
-            time.sleep(0.5)
-            os._exit(0)
-
-        threading.Thread(target=_exit_later, daemon=True).start()
+    def run_update_installer(self, installer_path: str) -> dict:
+        path = Path(str(installer_path or "").strip())
+        if not path.is_file():
+            return {"ok": False, "error": f"安装包不存在: {path}"}
+        try:
+            _spawn_installer_after_exit(path)
+        except Exception as exc:
+            logger.exception("安排安装程序失败")
+            return {"ok": False, "error": str(exc)}
+        _shutdown_desktop_app()
         return {"ok": True}
 
 
@@ -562,6 +617,7 @@ def _open_browser_fallback(url: str) -> None:
 
 
 def main() -> None:
+    _acquire_desktop_mutex()
     runtime = _runtime_root()
     data_root = _data_root()
     _configure_logging(data_root / "logs")
