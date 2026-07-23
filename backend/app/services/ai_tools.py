@@ -60,8 +60,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     },
                     "category": {
                         "type": "string",
-                        "enum": ["memory_card", "word", "reminder"],
-                        "description": "分组类别：memory_card=记忆卡片，word=单词卡片，reminder=事项卡片",
+                        "enum": ["memory_card", "word"],
+                        "description": "分组类别：memory_card=记忆卡片，word=单词卡片",
                     },
                 },
                 "required": ["name"],

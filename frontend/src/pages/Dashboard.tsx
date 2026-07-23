@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { reviewApi, itemApi, wordApi, reminderApi, confusablePairApi } from "../api";
+import { reviewApi, itemApi, wordApi, confusablePairApi } from "../api";
 import { CardKindBadge } from "../components/CardKindBadge";
 import ConfusablePairReviewCard from "../components/ConfusablePairReviewCard";
 import ForgettingCurveModal from "../components/ForgettingCurveModal";
@@ -9,9 +9,8 @@ import WordReviewCard from "../components/WordReviewCard";
 import WordReviewSettingsMenu from "../components/WordReviewSettingsMenu";
 import { CurveIcon, ChevronLeftIcon, IconButton } from "../components/ItemIcons";
 import { useGroups } from "../context/GroupContext";
-import { type Item, type Reminder, type ReviewConfusablePair, type ReviewItem, type ReviewWord, type ReviewedTodayItem } from "../types";
+import { type Item, type ReviewConfusablePair, type ReviewItem, type ReviewWord, type ReviewedTodayItem } from "../types";
 import { type WordReviewTrack, wordTrackLabel, wordTrackState } from "../utils/wordReviewTrack";
-import { recurrenceLabel } from "../utils/reminderSchedule";
 import { sortByCreatedAt } from "../utils/sort";
 import { todayStr, getNextReviewDate } from "../utils/reviewSchedule";
 
@@ -44,29 +43,24 @@ function orderConfusablePairs(
   return shuffled;
 }
 
-function DueEmptyState({ kind }: { kind: "item" | "word" | "reminder" | "confusable" }) {
+function DueEmptyState({ kind }: { kind: "item" | "word" | "confusable" }) {
   const isItem = kind === "item";
-  const isReminder = kind === "reminder";
   const isConfusable = kind === "confusable";
   return (
     <div className="rounded-2xl border border-dashed border-slate-200 bg-gradient-to-b from-slate-50 via-white to-amber-50/40 px-6 py-20 text-center dark:border-slate-700 dark:from-slate-900 dark:via-slate-900 dark:to-amber-950/30">
       <div className="text-5xl leading-none">
-        {isReminder ? "✅" : isConfusable ? "🔀" : isItem ? "☁️" : "🌙"}
+        {isConfusable ? "🔀" : isItem ? "☁️" : "🌙"}
       </div>
       <p className="mt-4 text-base font-medium text-slate-600 dark:text-slate-300">
-        {isReminder
-          ? "今天没有待处理的事项"
-          : isConfusable
-            ? "今天没有待复习的易混词对"
+        {isConfusable
+          ? "今天没有待复习的易混词对"
           : isItem
             ? "今天没有待复习的记忆卡片"
             : "今天没有待复习的单词卡片"}
       </p>
       <p className="mt-2 text-sm leading-relaxed text-slate-400 dark:text-slate-500">
-        {isReminder
-          ? "事项都处理完啦，今天可以安心歇一歇～"
-          : isConfusable
-            ? "易混词也都对齐啦，今天就让自己慢慢晃悠吧～"
+        {isConfusable
+          ? "易混词也都对齐啦，今天就让自己慢慢晃悠吧～"
           : isItem
             ? "慵懒一下也没关系，脑子也需要放空的时刻～"
             : "单词也都歇着啦，今天就让自己慢慢晃悠吧～"}
@@ -89,12 +83,11 @@ export default function Dashboard() {
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [spellWords, setSpellWords] = useState<ReviewWord[]>([]);
   const [recognizeWords, setRecognizeWords] = useState<ReviewWord[]>([]);
-  const [reminders, setReminders] = useState<Reminder[]>([]);
   const [completed, setCompleted] = useState<ReviewedTodayItem[]>([]);
   const [completedStats, setCompletedStats] = useState({ total: 0, item_count: 0, word_count: 0 });
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"due" | "stats">("due");
-  const [dueSubTab, setDueSubTab] = useState<"item" | "word" | "confusable" | "reminder">("item");
+  const [dueSubTab, setDueSubTab] = useState<"item" | "word" | "confusable">("item");
   const [wordTrackTab, setWordTrackTab] = useState<WordReviewTrack>("spell");
   const [wordOrderMode, setWordOrderMode] = useState<WordOrderMode>("shuffle");
   const [spellQueue, setSpellQueue] = useState<ReviewWord[]>([]);
@@ -122,11 +115,6 @@ export default function Dashboard() {
     setRecognizeWords(recognizeRes.data);
   }, [dueWordGroupFilterIds]);
 
-  const loadDueReminders = useCallback(async () => {
-    const res = await reminderApi.today();
-    setReminders(res.data);
-  }, []);
-
   const loadDueConfusablePairs = useCallback(async () => {
     const res = await reviewApi.todayConfusablePairs();
     setConfusablePairs(res.data);
@@ -150,13 +138,12 @@ export default function Dashboard() {
         loadDueItems(),
         loadDueWords(),
         loadDueConfusablePairs(),
-        loadDueReminders(),
         loadCompleted(),
       ]);
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [loadDueItems, loadDueWords, loadDueConfusablePairs, loadDueReminders, loadCompleted]);
+  }, [loadDueItems, loadDueWords, loadDueConfusablePairs, loadCompleted]);
 
   useEffect(() => {
     load();
@@ -303,7 +290,6 @@ export default function Dashboard() {
   };
 
   const confusableCount = confusableQueue.length;
-  const reminderCount = reminders.length;
   const isWordReviewActive =
     activeTab === "due" &&
     dueSubTab === "word" &&
@@ -311,14 +297,6 @@ export default function Dashboard() {
   const isConfusableReviewActive =
     activeTab === "due" && dueSubTab === "confusable" && confusableCount > 0;
   const isSpellReviewActive = isWordReviewActive || isConfusableReviewActive;
-
-  const handleReminderDone = async (id: number) => {
-    const reminder = reminders.find((item) => item.id === id);
-    await reminderApi.done(id);
-    if (reminder) setReviewToast(`${reminder.title} 已完成`);
-    setReminders((prev) => prev.filter((item) => item.id !== id));
-    window.dispatchEvent(new CustomEvent("app-data-changed"));
-  };
 
   const handleCardReview = async (id: number) => {
     const item = items.find((it) => it.id === id);
@@ -645,29 +623,6 @@ export default function Dashboard() {
                 {confusableCount}
               </span>
             </button>
-            <button
-              type="button"
-              onClick={() => setDueSubTab("reminder")}
-              className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
-                dueSubTab === "reminder"
-                  ? "bg-amber-100 text-amber-800"
-                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
-              }`}
-            >
-              事项卡片
-              {reminderCount > 0 && (
-                <span className="h-2 w-2 rounded-full bg-red-500" title={`${reminderCount} 个待处理`} />
-              )}
-              <span
-                className={`rounded-full px-2 py-0.5 text-xs ${
-                  dueSubTab === "reminder"
-                    ? "bg-amber-200 text-amber-900"
-                    : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400"
-                }`}
-              >
-                {reminderCount}
-              </span>
-            </button>
             <div className="ml-auto flex items-center gap-2">
               {dueSubTab === "item" ? (
                 <PageGroupFilter
@@ -859,39 +814,7 @@ export default function Dashboard() {
               />
             </div>
           )
-        ) : reminderCount === 0 ? (
-            <DueEmptyState kind="reminder" />
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {reminders.map((reminder) => (
-                <div
-                  key={`reminder-${reminder.id}`}
-                  className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4 dark:border-amber-900/50 dark:bg-amber-950/20"
-                >
-                  <div className="mb-1">
-                    <CardKindBadge kind="reminder" />
-                  </div>
-                  <h3 className="mb-2 mt-2 font-semibold text-slate-800 dark:text-slate-100">
-                    {reminder.title}
-                  </h3>
-                  <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-                    <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-800">
-                      提醒于 {reminder.remind_date}
-                    </span>
-                    <span className="text-slate-500 dark:text-slate-400">
-                      {recurrenceLabel(reminder.recurrence)}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => handleReminderDone(reminder.id)}
-                    className="w-full rounded-lg bg-green-600 py-2 text-sm font-medium text-white transition hover:bg-green-700"
-                  >
-                    完成
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+        ) : null}
         </div>
       ) : loading ? (
         <p className="text-slate-400 dark:text-slate-500">加载中...</p>

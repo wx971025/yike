@@ -1,5 +1,6 @@
 param(
     [string]$SourceRoot = "",
+    [string]$AppVersion = "",
     [switch]$SkipSync
 )
 
@@ -21,6 +22,31 @@ function Require-Command($Name) {
 
 Write-Host "==> YiKe Windows desktop build"
 Write-Host "==> Working directory: $PkgDir"
+
+function Get-DefaultAppVersion {
+    $issPath = Join-Path $PkgDir "installer\yike.iss"
+    if (-not (Test-Path $issPath)) {
+        return "1.0.0"
+    }
+    $content = Get-Content $issPath -Raw
+    if ($content -match '#define\s+MyAppVersion\s+"([^"]+)"') {
+        return $Matches[1]
+    }
+    return "1.0.0"
+}
+
+if (-not $AppVersion) {
+    $AppVersion = Get-DefaultAppVersion
+}
+$AppVersion = $AppVersion.Trim().TrimStart("v", "V")
+if (-not $AppVersion) {
+    throw "AppVersion 不能为空"
+}
+Write-Host "==> App version: $AppVersion"
+
+$versionJsonPath = Join-Path $PkgDir "launcher\version.json"
+@{ version = $AppVersion } | ConvertTo-Json -Compress | Set-Content -Path $versionJsonPath -Encoding UTF8
+Write-Host "==> Wrote $versionJsonPath"
 
 Require-Command python
 Require-Command npm
@@ -74,6 +100,7 @@ Write-Host "==> PyInstaller onedir..."
 
 $appDir = Join-Path $stageDir "YiKe"
 Copy-Item $iconIco (Join-Path $appDir "icon.ico") -Force
+Copy-Item $versionJsonPath (Join-Path $appDir "version.json") -Force
 $appExe = Join-Path $appDir "YiKe.exe"
 if (-not (Test-Path $appExe)) {
     throw "Build failed: $appExe not found"
@@ -88,7 +115,7 @@ $iscc = @(
 
 if ($iscc) {
     Write-Host "==> Building installer YiKeSetup.exe ..."
-    & $iscc (Join-Path $PkgDir "installer\yike.iss")
+    & $iscc "/DMyAppVersion=$AppVersion" (Join-Path $PkgDir "installer\yike.iss")
     $setup = Join-Path $PkgDir "output\YiKeSetup.exe"
     if (Test-Path $setup) {
         $sizeMb = [math]::Round((Get-Item $setup).Length / 1MB, 1)

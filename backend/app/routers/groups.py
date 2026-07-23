@@ -10,7 +10,6 @@ from ..services.group_category import (
 )
 from ..services.group_color import normalize_group_color, preset_color_for_index
 from ..services.memory_schedule import SCHEDULES, normalize_memory_mode
-from ..services.reminder_mode import normalize_reminder_mode, is_valid_reminder_mode
 
 router = APIRouter(prefix="/api/groups", tags=["groups"])
 
@@ -34,14 +33,7 @@ def _validate_memory_mode(mode: str | None) -> str:
 
 
 def _validate_group_schedule_mode(mode: str | None, category: str) -> str:
-    normalized_category = normalize_group_category(category)
-    if normalized_category == "reminder":
-        if mode is not None and not is_valid_reminder_mode(mode):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="无效的提醒方式",
-            )
-        return normalize_reminder_mode(mode)
+    normalize_group_category(category)
     return _validate_memory_mode(mode)
 
 

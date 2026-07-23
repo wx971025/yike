@@ -50,15 +50,15 @@ export default function CalendarPage() {
     <div>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">事项日历</h1>
+          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">复习日历</h1>
           <p className="text-sm text-slate-400 dark:text-slate-500">
-            当前显示：{groupLabel} 的复习与事项提醒，点击日期查看当天安排
+            当前显示：{groupLabel} 的复习安排，点击日期查看当天详情
           </p>
         </div>
         <PageGroupFilter
           selectedIds={groupFilterIds}
           onChange={setGroupFilterIds}
-          category={["memory_card", "word", "reminder"]}
+          category={["memory_card", "word"]}
         />
       </div>
 
@@ -104,15 +104,9 @@ export default function CalendarPage() {
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     <CardKindBadge kind={item.kind} />
-                    {item.kind === "reminder" ? (
-                      <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                        事项提醒
-                      </span>
-                    ) : (
-                      <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                        第 {item.stage} 轮复习
-                      </span>
-                    )}
+                    <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      第 {item.stage} 轮复习
+                    </span>
                   </div>
                 </li>
               ))}

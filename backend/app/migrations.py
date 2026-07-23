@@ -658,9 +658,17 @@ def migrate_assign_default_groups_v1() -> None:
 
 def migrate_reminder_group_schedule_mode_v1() -> None:
     """事项分组默认使用提醒方式，而非记忆方式。"""
-    from .services.reminder_mode import REMINDER_MODE_VALUES
-
-    valid = ", ".join(f"'{value}'" for value in sorted(REMINDER_MODE_VALUES))
+    reminder_mode_values = frozenset(
+        {
+            "daily",
+            "weekdays",
+            "weekends",
+            "monthly",
+            "yearly",
+            *(f"weekly_{day}" for day in range(1, 8)),
+        }
+    )
+    valid = ", ".join(f"'{value}'" for value in sorted(reminder_mode_values))
     with engine.begin() as conn:
         _ensure_schema_meta(conn)
         done = conn.execute(

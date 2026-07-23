@@ -8,7 +8,6 @@ import GroupsPage from "./pages/GroupsPage";
 import ItemsPage from "./pages/ItemsPage";
 import Login from "./pages/Login";
 import PlanItemsPage from "./pages/PlanItemsPage";
-import RemindersPage from "./pages/RemindersPage";
 import Register from "./pages/Register";
 import WordsPage from "./pages/WordsPage";
 import AgentSkillsPage from "./pages/AgentSkillsPage";
@@ -37,7 +36,6 @@ function ProtectedApp() {
           <Route path="/plan" element={<PlanItemsPage />} />
           <Route path="/groups" element={<GroupsPage />} />
           <Route path="/words" element={<WordsPage />} />
-          <Route path="/reminders" element={<RemindersPage />} />
           <Route path="/skills" element={<AgentSkillsPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
         </Route>

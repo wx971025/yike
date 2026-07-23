@@ -21,6 +21,8 @@ declare global {
           cancelled?: boolean;
           error?: string;
         }>;
+        get_app_version?: () => Promise<{ ok?: boolean; version?: string }>;
+        quit_for_update?: () => Promise<{ ok?: boolean }>;
       };
     };
   }

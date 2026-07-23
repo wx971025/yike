@@ -1,6 +1,6 @@
 """用户数据导出 / 导入：跨平台迁移全部学习计划。
 
-导出内容涵盖分组、事项、单词、易混词对、提醒、Agent 技能的全部字段，
+导出内容涵盖分组、记忆卡片、单词、易混词对、Agent 技能的全部字段，
 包含学习日期与各记忆轨道的复习轮次信息，便于换平台后完整还原。
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import ConfusablePair, Group, Item, Reminder, Skill, User, Word
+from ..models import ConfusablePair, Group, Item, Skill, User, Word
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
@@ -63,9 +63,6 @@ def _coerce(model: type, data: dict, overrides: dict) -> Any:
     return model(**kwargs)
 
 
-    return model(**kwargs)
-
-
 def build_export_payload(user: User, db: Session) -> dict:
     def owned(model: type) -> list:
         return db.query(model).filter(model.user_id == user.id).all()
@@ -75,7 +72,6 @@ def build_export_payload(user: User, db: Session) -> dict:
         "words": [_serialize(x) for x in owned(Word)],
         "items": [_serialize(x) for x in owned(Item)],
         "confusable_pairs": [_serialize(x) for x in owned(ConfusablePair)],
-        "reminders": [_serialize(x) for x in owned(Reminder)],
         "skills": [_serialize(x) for x in owned(Skill)],
     }
     return {
@@ -124,7 +120,7 @@ def import_data(
         )
 
     if mode == "replace":
-        for model in (ConfusablePair, Reminder, Item, Word, Skill, Group):
+        for model in (ConfusablePair, Item, Word, Skill, Group):
             db.query(model).filter(model.user_id == user.id).delete(
                 synchronize_session=False
             )
@@ -164,9 +160,6 @@ def import_data(
         )
         db.add(_coerce(ConfusablePair, row, override))
 
-    for row in data.get("reminders", []) or []:
-        db.add(_coerce(Reminder, row, group_override(row)))
-
     for row in data.get("skills", []) or []:
         db.add(_coerce(Skill, row, {"user_id": user.id}))
 
@@ -179,7 +172,6 @@ def import_data(
             "words": len(data.get("words", []) or []),
             "items": len(data.get("items", []) or []),
             "confusable_pairs": len(data.get("confusable_pairs", []) or []),
-            "reminders": len(data.get("reminders", []) or []),
             "skills": len(data.get("skills", []) or []),
         },
     }

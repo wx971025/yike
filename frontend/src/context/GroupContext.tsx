@@ -8,7 +8,6 @@ import {
 import { groupApi } from "../api";
 import type { Group, MemoryMode } from "../types";
 import { MEMORY_MODES, getTotalStages, normalizeMemoryMode } from "../types";
-import { reminderModeLabel } from "../utils/reminderSchedule";
 
 interface GroupState {
   groups: Group[];
@@ -48,12 +47,6 @@ export function GroupProvider({ children }: { children: ReactNode }) {
   };
 
   const scheduleLabelForGroupId = (groupId: number | null) => {
-    if (groupId == null) return "艾宾浩斯 · 间隔复习";
-    const group = groups.find((g) => g.id === groupId);
-    if (!group) return "艾宾浩斯 · 间隔复习";
-    if (group.category === "reminder") {
-      return reminderModeLabel(group.memory_mode);
-    }
     return memoryModeLabelForGroupId(groupId);
   };
 

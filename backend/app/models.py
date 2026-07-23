@@ -33,9 +33,6 @@ class User(Base):
     words: Mapped[list["Word"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
-    reminders: Mapped[list["Reminder"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
-    )
     confusable_pairs: Mapped[list["ConfusablePair"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
@@ -81,9 +78,6 @@ class Group(Base):
         back_populates="group", cascade="all, delete-orphan"
     )
     words: Mapped[list["Word"]] = relationship(
-        back_populates="group", cascade="all, delete-orphan"
-    )
-    reminders: Mapped[list["Reminder"]] = relationship(
         back_populates="group", cascade="all, delete-orphan"
     )
 
@@ -194,28 +188,6 @@ class ConfusablePair(Base):
     )
 
     user: Mapped["User"] = relationship(back_populates="confusable_pairs")
-
-
-class Reminder(Base):
-    __tablename__ = "reminders"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    group_id: Mapped[int | None] = mapped_column(
-        ForeignKey("groups.id", ondelete="CASCADE"), index=True, nullable=True
-    )
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    remind_date: Mapped[date] = mapped_column(Date, nullable=False)
-    recurrence: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    in_plan: Mapped[bool] = mapped_column(Boolean, default=True)
-    last_done_at: Mapped[date | None] = mapped_column(Date, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
-
-    user: Mapped["User"] = relationship(back_populates="reminders")
-    group: Mapped["Group | None"] = relationship(back_populates="reminders")
 
 
 class Skill(Base):

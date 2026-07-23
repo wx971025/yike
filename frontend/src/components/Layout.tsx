@@ -3,10 +3,11 @@ import BrandMark from "./BrandMark";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import AiAssistant from "./AiAssistant";
 import AiConfigModal from "./AiConfigModal";
+import DesktopUpdateChecker from "./DesktopUpdateChecker";
 import OnboardingTour from "./OnboardingTour";
 import SettingsMenu from "./SettingsMenu";
 import { ChevronDownIcon } from "./ItemIcons";
-import { reviewApi, reminderApi } from "../api";
+import { reviewApi } from "../api";
 import { useAuth } from "../context/AuthContext";
 import {
   WordReviewUiProvider,
@@ -17,18 +18,17 @@ const topNavItems = [
   { to: "/", label: "今日复习", icon: "📋", end: true },
   { to: "/plan", label: "计划管理", icon: "📝" },
   { to: "/groups", label: "分组管理", icon: "📁" },
-  { to: "/calendar", label: "事项日历", icon: "📅" },
+  { to: "/calendar", label: "复习日历", icon: "📅" },
   { to: "/skills", label: "Agent技能管理", icon: "🤖" },
 ];
 
 const cardNavGroup = {
   label: "卡片管理",
   icon: "📚",
-  paths: ["/items", "/words", "/reminders"],
+  paths: ["/items", "/words"],
   children: [
     { to: "/items", label: "记忆卡片" },
     { to: "/words", label: "单词卡片" },
-    { to: "/reminders", label: "事项卡片" },
   ],
 };
 
@@ -109,19 +109,17 @@ function LayoutShell() {
 
   const loadDueCount = useCallback(async () => {
     try {
-      const [cards, spellWords, recognizeWords, confusable, reminders] = await Promise.all([
+      const [cards, spellWords, recognizeWords, confusable] = await Promise.all([
         reviewApi.today(),
         reviewApi.todayWords(undefined, "spell"),
         reviewApi.todayWords(undefined, "recognize"),
         reviewApi.todayConfusablePairs(),
-        reminderApi.today(),
       ]);
       setDueCount(
         cards.data.length +
           spellWords.data.length +
           recognizeWords.data.length +
-          confusable.data.length +
-          reminders.data.length
+          confusable.data.length
       );
     } catch {
       setDueCount(0);
@@ -259,6 +257,8 @@ function LayoutShell() {
           onComplete={() => setShowOnboarding(false)}
         />
       )}
+
+      <DesktopUpdateChecker />
     </div>
   );
 }

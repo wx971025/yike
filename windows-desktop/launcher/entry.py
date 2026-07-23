@@ -71,6 +71,35 @@ def _runtime_root() -> Path:
     return Path(__file__).resolve().parent.parent / "workspace"
 
 
+def _read_app_version(runtime: Path | None = None) -> str:
+    root = runtime or _runtime_root()
+    candidates = [
+        root / "version.json",
+        Path(__file__).resolve().parent / "version.json",
+    ]
+    if getattr(sys, "frozen", False):
+        candidates.insert(0, Path(sys.executable).resolve().parent / "version.json")
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        try:
+            data = json.loads(candidate.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and isinstance(data.get("version"), str):
+                version = data["version"].strip().lstrip("vV")
+                if version:
+                    return version
+        except Exception:
+            logger.exception("读取 version.json 失败: %s", candidate)
+    return "0.0.0"
+
+
+_shutdown_handlers: dict[str, object | None] = {
+    "window": None,
+    "tray_icon": None,
+    "shutting_down": False,
+}
+
+
 def _data_root() -> Path:
     local_app = os.environ.get("LOCALAPPDATA")
     base = Path(local_app) if local_app else Path.home() / "AppData" / "Local"
@@ -111,6 +140,8 @@ def _configure_environment(runtime: Path, data_root: Path) -> int:
     ip_log = data_root / "data" / "ip.log"
 
     os.environ["YIKE_DESKTOP"] = "1"
+    app_version = _read_app_version(runtime)
+    os.environ["YIKE_APP_VERSION"] = app_version
     os.environ.setdefault("DATABASE_URL", f"sqlite:///{db_path.as_posix()}")
     os.environ.setdefault("DICT_DB_PATH", str(dict_path))
     os.environ.setdefault("IP_LOG_PATH", str(ip_log))
@@ -319,6 +350,37 @@ class _DesktopBridge:
         logger.info("数据已导出: %s", target_path)
         return {"ok": True, "path": str(target_path), "dir": str(folder_path)}
 
+    def get_app_version(self) -> dict:
+        return {"ok": True, "version": os.environ.get("YIKE_APP_VERSION") or _read_app_version()}
+
+    def quit_for_update(self) -> dict:
+        shutting_down = _shutdown_handlers.get("shutting_down")
+        if isinstance(shutting_down, bool):
+            _shutdown_handlers["shutting_down"] = True
+        else:
+            _shutdown_handlers["shutting_down"] = True
+
+        tray_icon = _shutdown_handlers.get("tray_icon")
+        if tray_icon is not None:
+            try:
+                tray_icon.stop()  # type: ignore[attr-defined]
+            except Exception:
+                logger.exception("停止托盘图标失败")
+
+        window = _shutdown_handlers.get("window")
+        if window is not None:
+            try:
+                window.destroy()  # type: ignore[attr-defined]
+            except Exception:
+                logger.exception("关闭窗口失败")
+
+        def _exit_later() -> None:
+            time.sleep(0.5)
+            os._exit(0)
+
+        threading.Thread(target=_exit_later, daemon=True).start()
+        return {"ok": True}
+
 
 def _start_tray_icon(
     *,
@@ -367,6 +429,9 @@ def _open_native_window(url: str, storage_path: Path) -> bool:
     shutting_down = False
     window_ref: dict[str, object | None] = {"window": None}
     tray_ref: dict[str, object | None] = {"icon": None}
+    _shutdown_handlers["window"] = None
+    _shutdown_handlers["tray_icon"] = None
+    _shutdown_handlers["shutting_down"] = False
 
     def _show_window() -> None:
         win = window_ref["window"]
@@ -384,6 +449,7 @@ def _open_native_window(url: str, storage_path: Path) -> bool:
     def _on_tray_exit(_icon, _item) -> None:
         nonlocal shutting_down
         shutting_down = True
+        _shutdown_handlers["shutting_down"] = True
         tray_icon = tray_ref["icon"]
         if tray_icon is not None:
             try:
@@ -396,7 +462,7 @@ def _open_native_window(url: str, storage_path: Path) -> bool:
 
     def _on_window_closing() -> bool:
         nonlocal shutting_down
-        if shutting_down:
+        if shutting_down or _shutdown_handlers.get("shutting_down"):
             return True
         threading.Thread(target=_hide_window, daemon=True).start()
         logger.info("窗口已隐藏到系统托盘，程序继续在后台运行")
@@ -408,6 +474,7 @@ def _open_native_window(url: str, storage_path: Path) -> bool:
     if tray_started is not None:
         tray_thread, tray_icon = tray_started
         tray_ref["icon"] = tray_icon
+        _shutdown_handlers["tray_icon"] = tray_icon
     else:
         logger.warning("未启用系统托盘，关闭窗口将直接退出程序")
 
@@ -421,6 +488,7 @@ def _open_native_window(url: str, storage_path: Path) -> bool:
             js_api=_DesktopBridge(),
         )
         window_ref["window"] = window
+        _shutdown_handlers["window"] = window
         if tray_thread is not None:
             window.events.closing += _on_window_closing
     except Exception:

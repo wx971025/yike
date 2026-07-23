@@ -1,4 +1,5 @@
 ---
+description: 
 alwaysApply: true
 ---
 
@@ -12,5 +13,51 @@ alwaysApply: true
 
 # 部署规则
 - 执行./deploy.sh脚本进行部署.
+- 每次一个大的功能更新, 都直接往main分支上推送一版并发布.
+- **重要**: 每次修改完, 请复述一下推送状态, 是tag了, 还是release了, 还是仅push, 还是什么都没做
 
-# 每次一个大的功能更新, 都直接往main分支上推送一版并发布.
+# 版本发布规则（GitHub Release + Windows 安装包）
+
+每次发版必须按以下流程执行，推送 tag 后会自动触发 `.github/workflows/release-desktop.yml` 构建 `YiKeSetup.exe` 并创建/更新 GitHub Release。
+
+## 发版步骤
+
+1. **先合并到 `main` 并推送**  
+   确保待发布代码已在 `main` 上。
+
+2. **编写 Release 说明**  
+   在 `.github/release-notes/` 新建与 tag 同名的 Markdown 文件，例如：
+   - tag 为 `v1.0.1` → 文件 `.github/release-notes/v1.0.1.md`
+   - 说明本版本亮点、Windows/Web 使用方式；可参考 `v1.0.0.md`
+
+3. **提交 Release 说明并推送 `main`**（若步骤 2 有新增文件）  
+   ```bash
+   git add .github/release-notes/vX.Y.Z.md
+   git commit -m "docs: vX.Y.Z release notes"
+   git push origin main
+   ```
+
+4. **打 annotated tag 并推送**（tag 必须指向包含该 release notes 文件的 commit）  
+   ```bash
+   git tag -a vX.Y.Z -m "vX.Y.Z — 简短说明"
+   git push origin vX.Y.Z
+   ```
+
+5. **等待 CI 完成**  
+   - 工作流：**Release Windows Desktop**  
+   - 成功后会自动创建 Release，并上传 `YiKeSetup.exe`  
+   - 发布页：`https://github.com/wx971025/yike/releases/tag/vX.Y.Z`
+
+6. **若需重新发同一 tag**（修复 CI 或更新说明后）  
+   ```bash
+   git tag -f vX.Y.Z
+   git push origin vX.Y.Z --force
+   ```
+   仅 force-push **tag**，不要 force-push `main`。
+
+## 注意事项
+
+- **没有** `.github/release-notes/vX.Y.Z.md` 时，Release 创建工作流会失败。
+- tag 格式使用 `v*`（如 `v1.0.0`），与 workflow 触发条件一致。
+- Windows 安装包由 CI 在 `windows-latest` 上构建（含 Inno Setup），不要手动上传 exe 到 Release，除非 CI 不可用。
+- 发版前照常执行 `./deploy.sh` 部署 Web 版（若本次变更涉及前后端）。

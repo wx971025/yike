@@ -56,13 +56,15 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            TAG="${{ inputs.tag }}"
           else
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            TAG="${GITHUB_REF_NAME}"
           fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "app_version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Build YiKe desktop app
-        run: ./build.ps1
+        run: ./build.ps1 -AppVersion "${{ steps.meta.outputs.app_version }}"
 
       - name: Verify installer
         shell: pwsh

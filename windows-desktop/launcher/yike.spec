@@ -23,10 +23,15 @@ if not frontend_dist.is_dir():
 if not tzdata_zoneinfo.is_dir():
     raise SystemExit("缺少 tzdata 时区数据，请 pip install tzdata")
 
+version_json = ROOT / "version.json"
+if not version_json.is_file():
+    raise SystemExit(f"缺少 version.json，请先运行 build.ps1: {version_json}")
+
 datas = [
     (str(frontend_dist), "frontend_dist"),
     (str(backend_app), "app"),
     (str(tzdata_zoneinfo), "tzdata"),
+    (str(version_json), "."),
 ]
 binaries = []
 hiddenimports = [
@@ -43,7 +48,6 @@ hiddenimports = [
     "app.routers.groups",
     "app.routers.items",
     "app.routers.words",
-    "app.routers.reminders",
     "app.routers.calendar",
     "app.routers.confusable_pairs",
     "app.routers.dictionary",
@@ -56,8 +60,6 @@ hiddenimports = [
     "app.services.ai_tools",
     "app.services.ai_config_store",
     "app.services.memory_schedule",
-    "app.services.reminder_schedule",
-    "app.services.reminder_mode",
     "app.services.group_category",
     "app.services.group_color",
     "app.services.review",

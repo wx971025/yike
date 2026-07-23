@@ -1,5 +1,6 @@
 ---
-alwaysApply: false
+description: 项目历史踩坑记录。调试 bug、修改桌面版/构建脚本/前后端、或遇到类似问题时查阅；解决新问题后在此追加条目（时间、原因、解决路线）。
+alwaysApply: true
 ---
 
 # 踩坑记录（Pitfalls）
@@ -93,6 +94,16 @@ alwaysApply: false
 - **解决路线**：后台刷新用 `load({ silent: true })` 跳过 loading；复习队列仅在切换乱序/分组时重排，平时只剔除已完成单词；内容区淡出时保留 `min-height` 避免布局跳动。
 
 <!-- 在此追加新条目，最新的放在最上面 -->
+
+### 2026-07-23 · 桌面版应用内更新需先退出进程
+
+- **原因**：YiKe 关闭窗口会隐藏到托盘，后端与 WebView 进程仍占用安装目录；Inno 覆盖文件时可能失败或需用户手动结束进程。
+- **解决路线**：安装器使用 `/CLOSEAPPLICATIONS`；前端「立即安装」先调 `POST /api/desktop/update/install` 再 `pywebview.api.quit_for_update()` 退出托盘与窗口；用户数据在 `%LOCALAPPDATA%\YiKe\` 不受安装覆盖影响。
+
+### 2026-07-23 · GitHub Releases API 限流
+
+- **原因**：未认证请求 GitHub API 约 60 次/小时/IP；启动检查 + 手动检查频繁可能触发 403。
+- **解决路线**：启动后每天最多提示一次（`desktop_prefs.json` 的 `last_check_at`）；检查失败时静默或设置页提示，不阻断正常使用；必要时后续可加 `GITHUB_TOKEN` 或自建更新元数据。
 
 ### 2026-07-23 · pywebview 5.3 无 FileDialog 枚举
 

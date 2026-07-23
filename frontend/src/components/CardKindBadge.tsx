@@ -6,7 +6,6 @@ export function CardKindBadge({
     | "word"
     | "word_spell"
     | "word_recognize"
-    | "reminder"
     | "confusable_pair";
 }) {
   if (kind === "word" || kind === "word_spell" || kind === "word_recognize") {
@@ -22,13 +21,6 @@ export function CardKindBadge({
     return (
       <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700">
         易混词对
-      </span>
-    );
-  }
-  if (kind === "reminder") {
-    return (
-      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-        事项卡片
       </span>
     );
   }

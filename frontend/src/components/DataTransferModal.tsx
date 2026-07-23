@@ -54,7 +54,7 @@ export default function DataTransferModal({ onClose }: DataTransferModalProps) {
       const c = res.data.imported;
       window.dispatchEvent(new CustomEvent("app-data-changed"));
       window.alert(
-        `导入完成：\n分组 ${c.groups}｜单词 ${c.words}｜事项 ${c.items}｜易混词 ${c.confusable_pairs}｜提醒 ${c.reminders}｜技能 ${c.skills}`
+        `导入完成：\n分组 ${c.groups}｜单词 ${c.words}｜记忆卡片 ${c.items}｜易混词 ${c.confusable_pairs}｜技能 ${c.skills}`
       );
       onClose();
     } catch (err) {

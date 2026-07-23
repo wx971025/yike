@@ -26,7 +26,7 @@ export interface AiConfigItem {
 
 export type MemoryMode = "ebbinghaus" | "daily_7" | "daily_15" | "daily_30";
 
-export type GroupCategory = "memory_card" | "word" | "reminder";
+export type GroupCategory = "memory_card" | "word";
 
 export interface Group {
   id: number;
@@ -56,18 +56,6 @@ export interface Item {
 export interface ReviewItem extends Item {
   due_date: string;
   overdue_days: number;
-}
-
-export interface Reminder {
-  id: number;
-  group_id: number | null;
-  title: string;
-  remind_date: string;
-  recurrence: string | null;
-  in_plan: boolean;
-  last_done_at: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface WordExample {
@@ -169,7 +157,7 @@ export interface CalendarEventItem {
   group_id: number | null;
   stage: number;
   stage_index: number;
-  kind: "item" | "word" | "word_spell" | "word_recognize" | "reminder" | "confusable_pair";
+  kind: "item" | "word" | "word_spell" | "word_recognize" | "confusable_pair";
 }
 
 export interface CalendarDay {

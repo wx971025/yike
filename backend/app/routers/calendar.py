@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import ConfusablePair, Item, Reminder, User, Word
+from ..models import ConfusablePair, Item, User, Word
 from ..schemas import (
     CalendarDay,
     CalendarEventItem,
@@ -24,7 +24,6 @@ from ..dates import app_today
 from ..services.group_context import group_memory_mode_map
 from ..services.group_filter import apply_group_ids_filter
 from ..services.memory_schedule import normalize_memory_mode
-from ..services.reminder_schedule import is_reminder_due, upcoming_reminder_dates
 from ..services.review import get_due_date, is_due, resolve_memory_mode, upcoming_due_dates
 from ..services.word_review_track import (
     WordReviewTrack,
@@ -256,29 +255,6 @@ def calendar(
                         kind=kind_suffix,
                     )
                 )
-
-    reminder_query = db.query(Reminder).filter(
-        Reminder.user_id == user.id, Reminder.in_plan.is_(True)
-    )
-    for reminder in reminder_query.all():
-        for due in upcoming_reminder_dates(
-            remind_date=reminder.remind_date,
-            recurrence=reminder.recurrence,
-            in_plan=reminder.in_plan,
-            last_done_at=reminder.last_done_at,
-            start=start,
-            end=end,
-        ):
-            by_date[due].append(
-                CalendarEventItem(
-                    id=reminder.id,
-                    title=reminder.title,
-                    group_id=None,
-                    stage=0,
-                    stage_index=0,
-                    kind="reminder",
-                )
-            )
 
     pair_query = db.query(ConfusablePair).filter(
         ConfusablePair.user_id == user.id,

@@ -44,7 +44,7 @@ jobs:
           Write-Host "Inno Setup:" $iscc
 
       - name: Build YiKe desktop app
-        run: ./build.ps1
+        run: ./build.ps1 -AppVersion "${{ steps.meta.outputs.app_version }}"
 
       - name: Upload installer
         uses: actions/upload-artifact@v6

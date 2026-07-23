@@ -13,7 +13,6 @@ import {
   GROUP_CATEGORY_OPTIONS,
 } from "../utils/groupCategory";
 import { presetColorForIndex } from "../utils/groupColor";
-import { normalizeReminderMode } from "../utils/reminderSchedule";
 import {
   sortByName,
   toggleSortDirection,
@@ -21,9 +20,7 @@ import {
 } from "../utils/sort";
 
 function scheduleModeForGroup(category: GroupCategory, memoryMode?: string | null) {
-  if (category === "reminder") {
-    return normalizeReminderMode(memoryMode);
-  }
+  void category;
   return normalizeMemoryMode(memoryMode);
 }
 
@@ -116,7 +113,7 @@ export default function GroupsPage() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("删除分组会同时删除组内所有卡片、单词和事项，确定继续？")) return;
+    if (!confirm("删除分组会同时删除组内所有卡片与单词，确定继续？")) return;
     await groupApi.remove(id);
     await refreshGroups();
   };

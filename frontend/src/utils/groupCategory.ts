@@ -15,11 +15,6 @@ export const GROUP_CATEGORY_OPTIONS: {
     label: "单词卡片",
     description: "用于归类单词",
   },
-  {
-    value: "reminder",
-    label: "事项卡片",
-    description: "用于归类提醒事项",
-  },
 ];
 
 export function groupCategoryLabel(category: GroupCategory | string): string {

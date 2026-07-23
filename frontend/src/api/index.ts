@@ -6,7 +6,6 @@ import type {
   Group,
   GroupCategory,
   Item,
-  Reminder,
   ReviewConfusablePair,
   ReviewItem,
   ReviewWord,
@@ -240,46 +239,6 @@ export const wordApi = {
     }),
 };
 
-export interface ReminderPayload {
-  title: string;
-  remind_date: string;
-  recurring: boolean;
-  recurrence?: string | null;
-  in_plan?: boolean;
-  group_id?: number | null;
-}
-
-export const reminderApi = {
-  list: (inPlan?: boolean | null, q?: string, groupIds?: GroupFilterSelection) =>
-    api.get<Reminder[]>("/reminders", {
-      params: {
-        ...(inPlan != null ? { in_plan: inPlan } : {}),
-        ...(q ? { q } : {}),
-        ...groupFilterParams(groupIds),
-      },
-    }),
-  today: () => api.get<Reminder[]>("/reminders/today"),
-  create: (payload: ReminderPayload) => api.post<Reminder>("/reminders", payload),
-  update: (id: number, payload: Partial<ReminderPayload>) =>
-    api.put<Reminder>(`/reminders/${id}`, payload),
-  remove: (id: number) => api.delete(`/reminders/${id}`),
-  done: (id: number) => api.post<Reminder>(`/reminders/${id}/done`),
-  joinPlan: (id: number) => api.post<Reminder>(`/reminders/${id}/join-plan`),
-  leavePlan: (id: number) => api.post<Reminder>(`/reminders/${id}/leave-plan`),
-  joinPlanAll: (q?: string) =>
-    api.post<{ count: number }>("/reminders/join-plan-all", null, {
-      params: q ? { q } : {},
-    }),
-  leavePlanAll: (q?: string) =>
-    api.post<{ count: number }>("/reminders/leave-plan-all", null, {
-      params: q ? { q } : {},
-    }),
-  deleteAll: (q?: string) =>
-    api.post<{ count: number }>("/reminders/delete-all", null, {
-      params: q ? { q } : {},
-    }),
-};
-
 export const reviewApi = {
   today: (groupIds?: GroupFilterSelection) =>
     api.get<ReviewItem[]>("/reviews/today", {
@@ -396,7 +355,6 @@ export interface ImportResult {
     words: number;
     items: number;
     confusable_pairs: number;
-    reminders: number;
     skills: number;
   };
 }

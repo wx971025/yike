@@ -198,38 +198,6 @@ class BulkPlanResult(BaseModel):
     count: int
 
 
-class ReminderCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=255)
-    remind_date: date
-    recurring: bool = False
-    recurrence: str | None = None
-    in_plan: bool = True
-    group_id: int
-
-
-class ReminderUpdate(BaseModel):
-    title: str | None = Field(default=None, min_length=1, max_length=255)
-    remind_date: date | None = None
-    recurring: bool | None = None
-    recurrence: str | None = None
-    in_plan: bool | None = None
-    group_id: int | None = None
-
-
-class ReminderOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    group_id: int | None
-    title: str
-    remind_date: date
-    recurrence: str | None
-    in_plan: bool
-    last_done_at: date | None
-    created_at: datetime
-    updated_at: datetime
-
-
 class WordExampleItem(BaseModel):
     en: str = ""
     zh: str = ""

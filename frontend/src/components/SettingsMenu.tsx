@@ -4,9 +4,12 @@ import { useAuth } from "../context/AuthContext";
 import { useTheme, type Theme } from "../context/ThemeContext";
 import { displayName } from "../utils/userProfile";
 import DataTransferModal from "./DataTransferModal";
+import DesktopUpdateModal from "./DesktopUpdateModal";
 import { GearIcon } from "./ItemIcons";
 import UserAvatar from "./UserAvatar";
 import UserProfileModal from "./UserProfileModal";
+import { checkDesktopUpdate, fetchDesktopVersion } from "../utils/desktopUpdate";
+import { isDesktopApp } from "../utils/onboarding";
 
 interface SettingsMenuProps {
   onOpenAiConfig: () => void;
@@ -50,7 +53,20 @@ export default function SettingsMenu({ onOpenAiConfig }: SettingsMenuProps) {
   const [open, setOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [dataTransferOpen, setDataTransferOpen] = useState(false);
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [updateCheck, setUpdateCheck] = useState<Awaited<
+    ReturnType<typeof checkDesktopUpdate>
+  > | null>(null);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isDesktopApp()) return;
+    void fetchDesktopVersion()
+      .then(setAppVersion)
+      .catch(() => setAppVersion(null));
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -67,6 +83,26 @@ export default function SettingsMenu({ onOpenAiConfig }: SettingsMenuProps) {
     setOpen(false);
     logout();
     navigate("/login");
+  };
+
+  const handleCheckUpdate = async () => {
+    setOpen(false);
+    setUpdateChecking(true);
+    try {
+      const result = await checkDesktopUpdate(false);
+      setUpdateCheck(result);
+      setUpdateModalOpen(true);
+    } catch (err) {
+      setUpdateCheck({
+        current_version: appVersion || "—",
+        latest_version: appVersion || "—",
+        update_available: false,
+        error: err instanceof Error ? err.message : "检查更新失败",
+      });
+      setUpdateModalOpen(true);
+    } finally {
+      setUpdateChecking(false);
+    }
   };
 
   if (!user) return null;
@@ -100,6 +136,21 @@ export default function SettingsMenu({ onOpenAiConfig }: SettingsMenuProps) {
               >
                 数据备份
               </button>
+              {isDesktopApp() ? (
+                <>
+                  <div className="border-t border-slate-100 dark:border-slate-800" />
+                  <button
+                    type="button"
+                    onClick={() => void handleCheckUpdate()}
+                    disabled={updateChecking}
+                    className="w-full px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    {updateChecking
+                      ? "正在检查更新…"
+                      : `检查更新${appVersion ? ` (v${appVersion})` : ""}`}
+                  </button>
+                </>
+              ) : null}
               <div className="border-t border-slate-100 dark:border-slate-800" />
               <button
                 type="button"
@@ -145,6 +196,17 @@ export default function SettingsMenu({ onOpenAiConfig }: SettingsMenuProps) {
 
       {dataTransferOpen && (
         <DataTransferModal onClose={() => setDataTransferOpen(false)} />
+      )}
+
+      {updateModalOpen && updateCheck && (
+        <DesktopUpdateModal
+          initialCheck={updateCheck}
+          manual
+          onClose={() => {
+            setUpdateModalOpen(false);
+            setUpdateCheck(null);
+          }}
+        />
       )}
     </>
   );
