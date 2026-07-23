@@ -95,6 +95,11 @@ alwaysApply: true
 
 <!-- 在此追加新条目，最新的放在最上面 -->
 
+### 2026-07-23 · 应用内更新「安装包大小校验失败」
+
+- **原因**：下载完成后用 GitHub API 的 `asset_size` 与本地文件做严格比对；网络中断导致文件不完整，或 HTTP `Content-Length` 与 API 大小不一致时误报。
+- **解决路线**：以实际下载字节数 + `Content-Length` 校验；检查 PE 头 `MZ`；失败重试 3 次、超时 300s。v1.1.4 发版。
+
 ### 2026-07-23 · Release CI 未生成 YiKeSetup.exe
 
 - **原因**：`yike.iss` 中 `procedure KillYiKeProcesses()` 空括号不符合 Inno Pascal 语法，ISCC 编译失败；`build.ps1` 未检查 ISCC 退出码，构建步骤仍显示成功。

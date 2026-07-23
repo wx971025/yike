@@ -543,6 +543,57 @@ def _build_check_response(*, record_check: bool) -> dict:
     }
 
 
+def _parse_content_length(headers) -> int:
+    raw = headers.get("Content-Length")
+    if not raw:
+        return 0
+    parts = [part.strip() for part in str(raw).split(",") if part.strip()]
+    for part in reversed(parts):
+        try:
+            size = int(part)
+            if size > 0:
+                return size
+        except ValueError:
+            continue
+    return 0
+
+
+def _looks_like_pe_executable(path: Path) -> bool:
+    try:
+        with path.open("rb") as handle:
+            return handle.read(2) == b"MZ"
+    except OSError:
+        return False
+
+
+def _verify_downloaded_installer(
+    path: Path,
+    *,
+    downloaded: int,
+    total_size: int,
+    api_size: int,
+) -> None:
+    actual = path.stat().st_size
+    if actual != downloaded:
+        raise RuntimeError("安装包写入异常，请重试")
+
+    if actual <= 1024 * 1024:
+        raise RuntimeError(f"安装包过小（{actual} 字节），下载可能不完整")
+
+    if not _looks_like_pe_executable(path):
+        raise RuntimeError("下载内容不是有效的 Windows 安装包，请检查网络或稍后重试")
+
+    if total_size > 0 and actual != total_size:
+        raise RuntimeError(
+            f"安装包大小校验失败（已下载 {actual} / 期望 {total_size} 字节）"
+        )
+
+    if api_size > 0 and total_size <= 0 and actual != api_size:
+        raise RuntimeError(
+            f"安装包大小校验失败（已下载 {actual} / 期望 {api_size} 字节）"
+        )
+
+
 def _download_update_worker(target: dict) -> None:
     global _update_state, _update_target
 
@@ -567,31 +618,62 @@ def _download_update_worker(target: dict) -> None:
             expected_size=expected_size,
         )
 
-        req = urllib.request.Request(
-            download_url,
-            headers={"User-Agent": f"YiKe-Desktop/{_app_version()}"},
-        )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            total_size = int(resp.headers.get("Content-Length") or expected_size or 0)
-            downloaded = 0
-            chunk_size = 1024 * 256
-            with destination.open("wb") as handle:
-                while True:
-                    chunk = resp.read(chunk_size)
-                    if not chunk:
-                        break
-                    handle.write(chunk)
-                    downloaded += len(chunk)
-                    if total_size > 0:
-                        pct = min(99.0, downloaded * 100.0 / total_size)
-                        _set(
-                            progress=pct,
-                            message=f"正在下载更新… {pct:.0f}%",
-                            expected_size=total_size,
-                        )
+        last_error = "下载失败"
+        for attempt in range(1, 4):
+            if destination.exists():
+                try:
+                    destination.unlink()
+                except OSError:
+                    pass
 
-        if expected_size > 0 and destination.stat().st_size != expected_size:
-            raise RuntimeError("安装包大小校验失败")
+            try:
+                req = urllib.request.Request(
+                    download_url,
+                    headers={"User-Agent": f"YiKe-Desktop/{_app_version()}"},
+                )
+                with urllib.request.urlopen(req, timeout=300) as resp:
+                    total_size = _parse_content_length(resp.headers) or expected_size
+                    downloaded = 0
+                    chunk_size = 1024 * 256
+                    with destination.open("wb") as handle:
+                        while True:
+                            chunk = resp.read(chunk_size)
+                            if not chunk:
+                                break
+                            handle.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size > 0:
+                                pct = min(99.0, downloaded * 100.0 / total_size)
+                                _set(
+                                    progress=pct,
+                                    message=f"正在下载更新… {pct:.0f}%"
+                                    + (f"（第 {attempt} 次）" if attempt > 1 else ""),
+                                    expected_size=total_size,
+                                )
+
+                _verify_downloaded_installer(
+                    destination,
+                    downloaded=downloaded,
+                    total_size=total_size,
+                    api_size=expected_size,
+                )
+                last_error = ""
+                break
+            except Exception as exc:
+                last_error = str(exc)
+                logger.warning(
+                    "桌面版更新包下载失败（第 %s 次）: %s", attempt, last_error
+                )
+                if attempt >= 3:
+                    raise RuntimeError(last_error) from exc
+                _set(
+                    progress=0.0,
+                    message=f"下载中断，正在重试（{attempt}/3）…",
+                    error="",
+                )
+
+        if last_error:
+            raise RuntimeError(last_error)
 
         _set(
             status="ready",

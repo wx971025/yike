@@ -56,11 +56,11 @@ Release 页面出现 YiKeSetup.exe
 **检查：**
 
 ```bash
-cd /path/to/yike   # 本仓库根目录
-git checkout main
-git pull origin main
-git log -3 --oneline
-git status -sb
+cd /path/to/yike   # 进入本仓库根目录（把路径换成你机器上的实际路径）
+git checkout main  # 切换到 main 分支，发版 tag 应打在 main 上
+git pull origin main  # 从远程拉取最新 main，避免基于过时的本地代码打 tag
+git log -3 --oneline  # 查看最近 3 条提交，确认待发布功能已在历史中
+git status -sb  # 简短查看工作区状态：是否有未提交改动、是否与 origin/main 同步
 ```
 
 **期望结果：**
@@ -81,7 +81,7 @@ git status -sb
 **命令：**
 
 ```bash
-./deploy.sh
+./deploy.sh  # 执行项目部署脚本：Docker 构建镜像、重启容器，更新线上 Web 版
 ```
 
 **等待：** Docker 构建并重启容器完成（通常 1–3 分钟）。
@@ -121,14 +121,18 @@ git status -sb
 **v1.0.0 第一次 push main（加入 Release 工作流）：**
 
 ```bash
+# 把 Release CI 工作流和 v1.0.0 发布说明加入暂存区
 git add .github/workflows/release-desktop.yml .github/release-notes/v1.0.0.md
+
+# 提交：说明本次变更是「打 tag 时自动构建并发布 Windows 安装包」
 git commit -m "$(cat <<'EOF'
 ci: 打 tag 时自动构建并发布 Windows 安装包到 GitHub Release
 
 新增 release-desktop 工作流，上传 YiKeSetup.exe 与 v1.0.0 发布说明。
 EOF
 )"
-git push origin main
+
+git push origin main  # 推送到 GitHub 的 main 分支，使远程 main 包含工作流与 release notes
 ```
 
 **结果：** `main` 指向 `a6720bf`。
@@ -138,12 +142,16 @@ git push origin main
 第一次推 tag 后 CI **失败**（见「七、踩坑」）。修复后执行：
 
 ```bash
+# 暂存修复后的两个 CI 工作流（Release 构建与日常构建都需安装 Inno Setup）
 git add .github/workflows/release-desktop.yml .github/workflows/build-windows-desktop.yml
+
+# 提交 CI 修复说明
 git commit -m "$(cat <<'EOF'
 ci: Release 构建前安装 Inno Setup 以生成 YiKeSetup.exe
 EOF
 )"
-git push origin main
+
+git push origin main  # 推送修复到 main，后续移动 tag 时会指向包含此修复的 commit
 ```
 
 **结果：** `main` 指向 `68d4e4b`。
@@ -159,6 +167,7 @@ git push origin main
 **首次打 tag（v1.0.0 最初在用户要求时）：**
 
 ```bash
+# 创建带附注的 tag v1.0.0，-m 写入 tag 说明（会显示在 GitHub Release 标题旁）
 git tag -a v1.0.0 -m "$(cat <<'EOF'
 v1.0.0 — 忆刻首个稳定版
 
@@ -167,7 +176,8 @@ Web 版 + Windows 桌面版（PyWebview）可用：
 - 桌面版：系统托盘驻留、数据备份导入导出、词典按需下载
 EOF
 )"
-git push origin v1.0.0
+
+git push origin v1.0.0  # 把 tag 推到 GitHub；v* 格式会触发 release-desktop.yml 自动构建
 ```
 
 **注意：** 若此时 `main` 上还没有 release notes / 工作流，后续需要**移动 tag**（见阶段 5）。
@@ -175,20 +185,16 @@ git push origin v1.0.0
 **常规发版（工作流与 release notes 已在 main 上时）：**
 
 ```bash
-# 确保当前 HEAD 就是要发布的 commit
-git checkout main
-git pull origin main
+git checkout main       # 确保在 main 分支上操作
+git pull origin main    # 拉取最新 main，tag 应打在最新 commit 上
 
+# 创建 annotated tag；-m 写一行简短版本说明即可
 git tag -a v1.0.1 -m "v1.0.1 — 简短说明"
-git push origin v1.0.0   # 替换为你的新版本号
 ```
 
-# 确保当前 HEAD 就是要发布的 commit
-git checkout main
-git pull origin main
 ---
+
 ### 阶段 5：推送 tag（触发 Release CI）
-git push origin v1.0.0   # 替换为你的新版本号
 
 ```bash
 git push origin vX.Y.Z   # 把本地 tag 推到 GitHub；v* 格式会触发 release-desktop.yml
@@ -197,12 +203,13 @@ git push origin vX.Y.Z   # 把本地 tag 推到 GitHub；v* 格式会触发 rele
 **若需把已有 tag 移到最新 main（v1.0.0 实际做过两次）：**
 
 ```bash
-git checkout main        # 切到最新 main
+git checkout main        # 切到 main 分支
 git pull origin main     # 拉取包含修复/workflow/release notes 的最新 commit
 
 git tag -f v1.0.0        # -f：把已有 tag 强制移到当前 HEAD（修正 tag 指错 commit 时用）
 
-git push origin v1.0.0 --force   # 强制更新远程 tag，重新触发 Release CI（只 force tag，不要 force main）
+# 强制更新远程 tag，重新触发 Release CI（只 force tag，不要 force main）
+git push origin v1.0.0 --force
 ```
 
 **⚠️ 只 force-push tag，不要 `git push --force origin main`。**
@@ -241,15 +248,17 @@ git push origin v1.0.0 --force   # 强制更新远程 tag，重新触发 Release
 #### 6.2 用 API 轮询（可选，命令行）
 
 ```bash
-# 查询 release-desktop 工作流最近一次运行状态（无需 gh 登录，公开 API）
+# 查询 release-desktop 工作流最近一次运行状态（公开 API，无需 gh 登录）
 curl -s "https://api.github.com/repos/wx971025/yike/actions/workflows/release-desktop.yml/runs?per_page=1" \
   | python3 -c "import sys,json; r=json.load(sys.stdin)['workflow_runs'][0]; print(r['status'], r['conclusion'], r['html_url'])"
-# 输出示例：completed success https://github.com/.../actions/runs/12345
-# status=运行中/已完成，conclusion=success/failure/null（未完成时为 null）
+# status=运行中/已完成（queued/in_progress/completed）
+# conclusion=success/failure/null（未完成时为 null）
+# html_url=该次 run 的 Actions 详情页链接
 
-# 查询指定某次 run 的详情（把 RUN_ID 换成 Actions 页 URL 里的数字）
+# 查询指定某次 run 的详情（把 RUN_ID 换成 Actions 页 URL 里的数字，如 29976874667）
 curl -s "https://api.github.com/repos/wx971025/yike/actions/runs/RUN_ID" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['status'], d['conclusion'])"
+# 输出示例：completed success
 ```
 
 **等到：** `completed success`。
@@ -353,9 +362,9 @@ git push origin v1.0.1                     # 推送 tag → 自动构建 YiKeSet
 - **重发方式：**
 
   ```bash
-  git push origin main          # 先把 CI 修复推到 main
-  git tag -f v1.0.0             # 把 tag 移到包含修复的最新 commit
-  git push origin v1.0.0 --force   # 强制更新远程 tag，重新跑 Release 工作流
+  git push origin main          # 先把 CI 修复推到 main，使最新 commit 包含 Inno Setup 安装步骤
+  git tag -f v1.0.0             # 把 tag 移到包含修复的最新 commit（覆盖本地 tag 指向）
+  git push origin v1.0.0 --force   # 强制更新远程 tag，重新跑 Release 工作流（只 force tag）
   ```
 
 ### 7.2 tag 指向的 commit 没有 release 工作流
@@ -374,9 +383,9 @@ git push origin v1.0.1                     # 推送 tag → 自动构建 YiKeSet
 
 正常情况下**不要**手动上传。若必须：
 
-1. 在 Windows 机器上执行 `windows-desktop/build.ps1`
-2. 取 `windows-desktop/output/YiKeSetup.exe`
-3. 在 GitHub → Releases → Draft new release → 选择 tag → 上传 exe
+1. 在 Windows 机器上执行 `windows-desktop/build.ps1` — 本地完整打包（npm build + PyInstaller + Inno Setup）
+2. 取 `windows-desktop/output/YiKeSetup.exe` — 安装包输出路径
+3. 在 GitHub → Releases → Draft new release → 选择 tag → 上传 exe — 网页手动创建 Release 并附安装包
 
 ---
 
