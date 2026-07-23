@@ -1,0 +1,208 @@
+---
+description: 发版全流程。用户说「发版」时必须阅读并按此执行：版本号 → release notes → commit → tag → CI → 镜像 → 部署。
+alwaysApply: false
+---
+
+# 忆刻发版全流程（Agent 执行清单）
+
+用户说 **「发版」** 时，必须先读本文件，逐步执行，并在结束时复述推送状态（仅 push / 已 tag / Release 已发布 / 镜像已同步 / 部署情况）。
+
+## 仓库信息
+
+| 项 | 值 |
+|----|-----|
+| GitHub | `wx971025/yike` |
+| CI 工作流 | `.github/workflows/release-desktop.yml`（push `v*` tag 触发） |
+| Release 说明 | `.github/release-notes/vX.Y.Z.md`（**缺此文件 CI 会失败**） |
+| 镜像同步 | `./get_releases.sh vX.Y.Z` |
+| 最新 tag 参考 | 执行 `git tag --sort=-v:refname \| head -1` 确定下一版本（通常 patch +1） |
+
+---
+
+## 流程总览
+
+```text
+确认待发布改动
+  → 确定版本号 vX.Y.Z
+  → 编写 .github/release-notes/vX.Y.Z.md
+  → git commit（含 release notes + 待发布代码）
+  → git push origin main
+  → git tag -a vX.Y.Z && git push origin vX.Y.Z
+  → 轮询 CI 至 success（约 5–10 分钟）
+  → ./get_releases.sh vX.Y.Z
+  → 部署 Web（按变更选 backend/frontend，勿动 gateway nginx）
+  → 向用户汇报 Release 链接与镜像地址
+```
+
+---
+
+## 步骤 0：发版前检查
+
+```bash
+cd /home/wangxu/ebbinghaus   # 或仓库根目录
+git checkout main
+git pull origin main
+git status -sb
+git log -3 --oneline
+git tag --sort=-v:refname | head -3
+```
+
+**必须满足：**
+- 待发布功能代码已就绪（无遗漏的未提交改动，或本次一并 commit）
+- 版本号 = 当前最新 tag 的 patch +1（除非用户指定版本）
+- tag 格式：`v1.2.3`（annotated tag，带 `-a`）
+
+---
+
+## 步骤 1：编写 Release 说明
+
+1. 复制 `.github/release-notes/v1.1.10.md`（或最近一版）为模板
+2. 新建 `.github/release-notes/vX.Y.Z.md`
+3. 写清：**本版本亮点**、修复项、（如有）镜像说明
+
+---
+
+## 步骤 2：提交并推送 main
+
+```bash
+git add <待发布文件> .github/release-notes/vX.Y.Z.md
+git commit -m "$(cat <<'EOF'
+<type>: 简短说明
+
+可选补充一行。
+EOF
+)"
+git push origin main
+```
+
+- `<type>`：`feat` / `fix` / `docs` 等，与改动一致
+- **tag 必须打在包含 release notes 的 commit 上**（可与功能同 commit，或先 docs 再 tag）
+
+---
+
+## 步骤 3：打 tag 并推送（触发 Release CI）
+
+```bash
+git tag -a vX.Y.Z -m "$(cat <<'EOF'
+vX.Y.Z — 一行说明
+EOF
+)"
+git push origin vX.Y.Z
+```
+
+⚠️ **只 force-push tag，绝不 force-push main。**
+
+重发同一 tag（CI 失败修复后）：
+
+```bash
+git tag -f vX.Y.Z
+git push origin vX.Y.Z --force
+```
+
+---
+
+## 步骤 4：等待 CI 成功
+
+Actions 页：https://github.com/wx971025/yike/actions/workflows/release-desktop.yml
+
+轮询命令：
+
+```bash
+curl -s "https://api.github.com/repos/wx971025/yike/actions/workflows/release-desktop.yml/runs?per_page=1" \
+  | python3 -c "import sys,json; r=json.load(sys.stdin)['workflow_runs'][0]; print(r['status'], r.get('conclusion'), r['html_url'])"
+```
+
+等到：`completed success`（约 5–10 分钟，可每 30s 轮询）。
+
+验证 Release：
+
+```bash
+curl -s "https://api.github.com/repos/wx971025/yike/releases/tags/vX.Y.Z" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('html_url')); [print(a['name']) for a in d.get('assets',[])]"
+```
+
+期望：Release 页存在，且附件含 `YiKeSetup.exe`。
+
+---
+
+## 步骤 5：同步国内更新镜像
+
+CI 成功后**必须**执行：
+
+```bash
+./get_releases.sh vX.Y.Z
+```
+
+成功输出含：
+- `http://43.128.141.141/releases/desktop/latest.json`
+- `http://43.128.141.141/releases/desktop/YiKeSetup-X.Y.Z.exe`
+
+`releases/desktop/` 在 `.gitignore`，不进 Git。
+
+---
+
+## 步骤 6：部署 Web（按变更选择）
+
+**约束（见 general.mdc）：**
+- `my-yike.online` 域名未解封 → **不要修改** `deploy/nginx*.conf`、gateway 配置
+- **不要**无故 `./deploy.sh all` 重建 gateway
+
+| 变更范围 | 命令 |
+|----------|------|
+| 仅前端 | `./deploy.sh frontend` |
+| 仅后端 | `./deploy.sh backend` |
+| 前后端都有 | `./deploy.sh frontend` + `./deploy.sh backend`（仍避免 gateway） |
+| 仅桌面/文档/CI | 可跳过 Web 部署 |
+
+镜像文件更新**不需要**重建 gateway（宿主机目录挂载，get_releases 写完即生效）。
+
+---
+
+## 步骤 7：向用户汇报（必填）
+
+回复须包含：
+
+1. **版本号** `vX.Y.Z`
+2. **GitHub Release 链接**
+3. **镜像下载**（latest.json + exe 直链）
+4. **本版本摘要**（1–3 条）
+5. **推送状态**：已 push main / 已 tag / CI success / 已 get_releases / 已 deploy（或未 deploy 及原因）
+
+---
+
+## 发版检查清单
+
+- [ ] 版本号已确定（X.Y.Z）
+- [ ] `.github/release-notes/vX.Y.Z.md` 已创建
+- [ ] 代码 + release notes 已 commit 并 push main
+- [ ] `git tag -a vX.Y.Z` 已打在当前 commit
+- [ ] `git push origin vX.Y.Z` 已执行
+- [ ] Actions「Release Windows Desktop」= success
+- [ ] Release 页可下载 `YiKeSetup.exe`
+- [ ] `./get_releases.sh vX.Y.Z` 已成功
+- [ ] Web 部署已按规则执行（或未执行并说明）
+- [ ] 已向用户复述完整推送状态
+
+---
+
+## 常见失败
+
+| 现象 | 原因 | 处理 |
+|------|------|------|
+| Create Release 失败 | 缺少 `.github/release-notes/vX.Y.Z.md` | 补文件 → commit push main → `git tag -f` → force push tag |
+| Verify installer 失败 | Inno Setup 未安装（历史问题，已修） | 检查 workflow 含 `choco install innosetup` |
+| get_releases 版本不存在 | CI 未完成或 Release 无 exe | 等 CI success 后重试 |
+| get_releases 网络失败 | 服务器访问 GitHub 失败 | 检查网络后重试 |
+
+更多踩坑见 `.cursor/rules/pitfalls.mdc`。
+
+---
+
+## 相关文件
+
+| 路径 | 作用 |
+|------|------|
+| `.github/workflows/release-desktop.yml` | tag 触发构建 + 发 Release |
+| `windows-desktop/build.ps1` | Windows 打包 |
+| `scripts/sync-desktop-release.sh` | get_releases 实际脚本 |
+| `docs/release-process.md` | 详细文档（人类阅读） |
