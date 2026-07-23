@@ -83,7 +83,7 @@ hiddenimports = [
 ]
 
 # 完整收集 pywebview 及其原生依赖（WebView2 / pythonnet / clr_loader）
-for pkg in ("webview", "clr_loader", "pythonnet"):
+for pkg in ("webview", "clr_loader", "pythonnet", "pystray"):
     try:
         pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
         datas += pkg_datas

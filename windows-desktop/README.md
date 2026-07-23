@@ -78,9 +78,10 @@ chmod +x sync-source.sh build-linux-prep.sh
 
 1. 安装 `YiKeSetup.exe` 或运行 `output/stage/YiKe/YiKe.exe`
 2. 自动打开原生窗口，免登录进入主界面
-3. 使用词典功能时，若未下载会提示前往「下载管理」
-4. 用户数据：`%LOCALAPPDATA%\YiKe\data\`
-5. 日志：`%LOCALAPPDATA%\YiKe\logs\`
+3. 点击窗口关闭按钮会**隐藏到系统托盘**，程序继续在后台运行；托盘菜单可「打开忆刻」或「退出」
+4. 使用词典功能时，若未下载会提示前往「下载管理」
+5. 用户数据：`%LOCALAPPDATA%\YiKe\data\`
+6. 日志：`%LOCALAPPDATA%\YiKe\logs\`
 
 ## 目录结构
 

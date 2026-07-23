@@ -155,6 +155,57 @@ def _start_server(app_import: str, host: str, port: int) -> None:
     uvicorn.run(app_import, host=host, port=port, log_config=None)
 
 
+def _tray_icon_path() -> Path:
+    if getattr(sys, "frozen", False):
+        exe_icon = Path(sys.executable).resolve().parent / "icon.ico"
+        if exe_icon.is_file():
+            return exe_icon
+    pkg_root = Path(__file__).resolve().parent.parent
+    for candidate in (
+        pkg_root / "assets" / "icon.ico",
+        _runtime_root() / "frontend" / "public" / "logo.png",
+    ):
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError("未找到托盘图标 icon.ico / logo.png")
+
+
+def _start_tray_icon(
+    *,
+    on_open,
+    on_exit,
+) -> tuple[threading.Thread, object] | None:
+    """在后台线程启动系统托盘图标，返回 (线程, icon)。"""
+    try:
+        from PIL import Image
+        from pystray import Icon, Menu, MenuItem
+    except Exception:
+        logger.exception("导入 pystray 失败，托盘驻留不可用")
+        return None
+
+    try:
+        tray_image = Image.open(_tray_icon_path())
+    except Exception:
+        logger.exception("加载托盘图标失败，使用占位图标")
+        tray_image = Image.new("RGBA", (64, 64), (0, 120, 215, 255))
+
+    menu = Menu(
+        MenuItem("打开忆刻", on_open, default=True),
+        MenuItem("退出", on_exit),
+    )
+    icon = Icon("忆刻 YiKe", tray_image, menu=menu, title="忆刻 YiKe")
+
+    def _run_tray() -> None:
+        try:
+            icon.run()
+        except Exception:
+            logger.exception("系统托盘线程异常退出")
+
+    thread = threading.Thread(target=_run_tray, daemon=True, name="yike-tray")
+    thread.start()
+    return thread, icon
+
+
 def _open_native_window(url: str, storage_path: Path) -> bool:
     """尝试用 pywebview 打开原生窗口，成功返回 True。"""
     try:
@@ -163,10 +214,60 @@ def _open_native_window(url: str, storage_path: Path) -> bool:
         logger.exception("导入 pywebview 失败，降级为浏览器窗口")
         return False
 
+    shutting_down = False
+    window_ref: dict[str, object | None] = {"window": None}
+    tray_ref: dict[str, object | None] = {"icon": None}
+
+    def _show_window() -> None:
+        win = window_ref["window"]
+        if win is not None:
+            win.show()
+
+    def _hide_window() -> None:
+        win = window_ref["window"]
+        if win is not None:
+            win.hide()
+
+    def _on_tray_open(_icon, _item) -> None:
+        threading.Thread(target=_show_window, daemon=True).start()
+
+    def _on_tray_exit(_icon, _item) -> None:
+        nonlocal shutting_down
+        shutting_down = True
+        tray_icon = tray_ref["icon"]
+        if tray_icon is not None:
+            try:
+                tray_icon.stop()
+            except Exception:
+                logger.exception("停止托盘图标失败")
+        win = window_ref["window"]
+        if win is not None:
+            win.destroy()
+
+    def _on_window_closing() -> bool:
+        nonlocal shutting_down
+        if shutting_down:
+            return True
+        threading.Thread(target=_hide_window, daemon=True).start()
+        logger.info("窗口已隐藏到系统托盘，程序继续在后台运行")
+        return False
+
+    tray_thread = None
+    tray_icon = None
+    tray_started = _start_tray_icon(on_open=_on_tray_open, on_exit=_on_tray_exit)
+    if tray_started is not None:
+        tray_thread, tray_icon = tray_started
+        tray_ref["icon"] = tray_icon
+    else:
+        logger.warning("未启用系统托盘，关闭窗口将直接退出程序")
+
     try:
-        webview.create_window(
+        window = webview.create_window(
             "忆刻 YiKe", url, width=1280, height=860, min_size=(960, 640)
         )
+        window_ref["window"] = window
+        if tray_thread is not None:
+            window.events.closing += _on_window_closing
     except Exception:
         logger.exception("创建原生窗口失败，降级为浏览器窗口")
         return False
