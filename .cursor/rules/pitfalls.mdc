@@ -107,6 +107,13 @@ alwaysApply: true
 
 <!-- 在此追加新条目，最新的放在最上面 -->
 
+<!-- 在此追加新条目，最新的放在最上面 -->
+
+### 2026-07-23 · 桌面版更新走自建镜像 releases/desktop
+
+- **原因**：国内用户直连 GitHub API / Release 下载易超时；服务器 43.128.141.141:80 可稳定访问 GitHub。
+- **解决路线**：`scripts/sync-desktop-release.sh` 将 `YiKeSetup.exe` 同步到 `releases/desktop/`（gitignore）；Nginx `/releases/desktop/` 静态托管；桌面版优先读 `latest.json` 与镜像下载，失败回退 GitHub。v1.1.7 发版。
+
 ### 2026-07-23 · 首次安装 ucrtbase.dll 仍失败（v1.1.6 二次修复）
 
 - **原因**：Win10+ 实际加载系统 UCRT，但 PyInstaller 仍把 `ucrtbase.dll` 打进 `_internal`；Inno **SolidCompression** 批量 MoveFile 时易被杀毒/索引锁住。用户装到 `D:\YiKe` 时，`PrivilegesRequired=lowest` 也可能加剧写入失败。

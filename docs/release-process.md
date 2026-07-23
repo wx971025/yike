@@ -324,6 +324,11 @@ git push origin v1.0.1                     # 推送 tag → 自动构建 YiKeSet
 # ========== 6. 验证 Release ==========
 # 浏览器打开 Release 页，确认可下载 YiKeSetup.exe：
 # https://github.com/wx971025/yike/releases/tag/v1.0.1
+
+# ========== 7. 同步到国内更新镜像（桌面版 v1.1.7+ 优先从此拉取）==========
+./scripts/sync-desktop-release.sh v1.0.1   # 从 GitHub 下载 exe → releases/desktop/，生成 latest.json
+# 镜像地址：http://43.128.141.141/releases/desktop/latest.json
+# 安装包不进 Git（releases/desktop/ 已在 .gitignore）
 ```
 
 ---

@@ -29,6 +29,7 @@ services:
       - "0.0.0.0:80:80"
     volumes:
       - ./deploy/nginx-yike.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./releases/desktop:/srv/desktop-releases:ro
     depends_on:
       - frontend
     restart: unless-stopped

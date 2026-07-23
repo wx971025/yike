@@ -1,13 +1,16 @@
 """桌面版 API：免登录 bootstrap + 词典按需下载管理。"""
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import secrets
+import sys
 import tempfile
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -33,6 +36,14 @@ router = APIRouter(prefix="/api/desktop", tags=["desktop"])
 DEFAULT_USERNAME = "local"
 GITHUB_REPO = "wx971025/yike"
 UPDATE_INSTALLER_NAME = "YiKeSetup.exe"
+DEFAULT_UPDATE_MIRROR_BASE = "http://43.128.141.141/releases/desktop/"
+
+
+def _update_mirror_base() -> str:
+    base = os.environ.get("YIKE_UPDATE_MIRROR_BASE", DEFAULT_UPDATE_MIRROR_BASE).strip()
+    if not base:
+        return ""
+    return base.rstrip("/") + "/"
 
 
 def _desktop_mode() -> bool:
@@ -437,7 +448,19 @@ def _github_request(path: str) -> dict:
         return data
 
 
-def _parse_latest_release() -> dict:
+def _http_get_json(url: str, *, timeout: int = 20) -> dict:
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": f"YiKe-Desktop/{_app_version()}"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+        if not isinstance(data, dict):
+            raise RuntimeError("更新元数据格式异常")
+        return data
+
+
+def _parse_github_release() -> dict:
     data = _github_request(f"/repos/{GITHUB_REPO}/releases/latest")
     tag_name = str(data.get("tag_name") or "")
     latest_version = _normalize_version(tag_name)
@@ -463,7 +486,66 @@ def _parse_latest_release() -> dict:
         "asset_size": asset_size,
         "release_page": release_page,
         "release_notes": release_notes,
+        "sha256": "",
+        "source": "github",
     }
+
+
+def _parse_mirror_release() -> dict | None:
+    mirror_base = _update_mirror_base()
+    if not mirror_base:
+        return None
+    try:
+        meta = _http_get_json(mirror_base + "latest.json", timeout=15)
+        version = _normalize_version(str(meta.get("version") or ""))
+        if not version:
+            return None
+        filename = str(meta.get("filename") or UPDATE_INSTALLER_NAME).strip()
+        if not filename:
+            filename = UPDATE_INSTALLER_NAME
+        rel_url = str(meta.get("download_url") or f"/releases/desktop/{filename}").strip()
+        if rel_url.startswith("http://") or rel_url.startswith("https://"):
+            download_url = rel_url
+        elif rel_url.startswith("/"):
+            parsed = urllib.parse.urlparse(mirror_base)
+            download_url = f"{parsed.scheme}://{parsed.netloc}{rel_url}"
+        else:
+            download_url = mirror_base + filename
+        return {
+            "latest_version": version,
+            "tag_name": str(meta.get("tag") or f"v{version}"),
+            "download_url": download_url,
+            "asset_size": int(meta.get("size") or 0),
+            "release_page": mirror_base,
+            "release_notes": str(meta.get("release_notes") or "").strip(),
+            "sha256": str(meta.get("sha256") or "").strip().lower(),
+            "source": "mirror",
+        }
+    except Exception:
+        logger.exception("读取镜像更新元数据失败: %s", mirror_base)
+        return None
+
+
+def _parse_latest_release() -> dict:
+    github: dict | None = None
+    try:
+        github = _parse_github_release()
+    except Exception:
+        logger.exception("读取 GitHub Release 失败")
+
+    mirror = _parse_mirror_release()
+    if mirror is not None:
+        if github is not None:
+            mirror["github_download_url"] = github["download_url"]
+            if not mirror.get("release_notes") and github.get("release_notes"):
+                mirror["release_notes"] = github["release_notes"]
+            if not mirror.get("release_page") or mirror.get("release_page") == _update_mirror_base():
+                mirror["release_page"] = github.get("release_page") or mirror["release_page"]
+        return mirror
+
+    if github is not None:
+        return github
+    raise RuntimeError("无法获取更新信息（镜像与 GitHub 均不可用）")
 
 
 def _updates_dir() -> Path:
@@ -538,6 +620,9 @@ def _build_check_response(*, record_check: bool) -> dict:
         "asset_size": latest["asset_size"],
         "release_page": latest["release_page"],
         "release_notes": latest["release_notes"],
+        "update_source": latest.get("source", "github"),
+        "sha256": latest.get("sha256", ""),
+        "github_download_url": latest.get("github_download_url", ""),
         "dismissed_version": dismissed_version,
         "last_check_at": last_check_at,
     }
@@ -572,6 +657,7 @@ def _verify_downloaded_installer(
     downloaded: int,
     total_size: int,
     api_size: int,
+    sha256: str = "",
 ) -> None:
     actual = path.stat().st_size
     if actual != downloaded:
@@ -593,14 +679,29 @@ def _verify_downloaded_installer(
             f"安装包大小校验失败（已下载 {actual} / 期望 {api_size} 字节）"
         )
 
+    expected_sha256 = sha256.strip().lower()
+    if expected_sha256:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest().lower()
+        if digest != expected_sha256:
+            raise RuntimeError("安装包校验失败（SHA256 不一致）")
+
 
 def _download_update_worker(target: dict) -> None:
     global _update_state, _update_target
 
     version = _normalize_version(target.get("latest_version"))
-    download_url = str(target.get("download_url") or "")
+    primary_url = str(target.get("download_url") or "")
+    fallback_url = str(target.get("github_download_url") or "")
     expected_size = int(target.get("asset_size") or 0)
+    expected_sha256 = str(target.get("sha256") or "")
     destination = _updates_dir() / f"YiKeSetup-{version}.exe"
+
+    download_urls: list[str] = []
+    for url in (primary_url, fallback_url):
+        if url and url not in download_urls:
+            download_urls.append(url)
+    if not download_urls:
+        raise RuntimeError("缺少下载地址")
 
     def _set(**kwargs) -> None:
         with _update_lock:
@@ -626,6 +727,9 @@ def _download_update_worker(target: dict) -> None:
                 except OSError:
                     pass
 
+            url_index = min(attempt - 1, len(download_urls) - 1)
+            download_url = download_urls[url_index]
+
             try:
                 req = urllib.request.Request(
                     download_url,
@@ -635,6 +739,7 @@ def _download_update_worker(target: dict) -> None:
                     total_size = _parse_content_length(resp.headers) or expected_size
                     downloaded = 0
                     chunk_size = 1024 * 256
+                    source_hint = "镜像" if url_index == 0 and len(download_urls) > 1 else ""
                     with destination.open("wb") as handle:
                         while True:
                             chunk = resp.read(chunk_size)
@@ -647,7 +752,7 @@ def _download_update_worker(target: dict) -> None:
                                 _set(
                                     progress=pct,
                                     message=f"正在下载更新… {pct:.0f}%"
-                                    + (f"（第 {attempt} 次）" if attempt > 1 else ""),
+                                    + (f"（第 {attempt} 次{source_hint}）" if attempt > 1 else ""),
                                     expected_size=total_size,
                                 )
 
@@ -656,6 +761,7 @@ def _download_update_worker(target: dict) -> None:
                     downloaded=downloaded,
                     total_size=total_size,
                     api_size=expected_size,
+                    sha256=expected_sha256 if url_index == 0 else "",
                 )
                 last_error = ""
                 break
