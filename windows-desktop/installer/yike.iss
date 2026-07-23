@@ -27,7 +27,6 @@ PrivilegesRequiredOverridesAllowed=dialog
 CloseApplications=force
 AppMutex=YiKeDesktopMutex
 SetupMutex=YiKeSetupMutex
-AllowMultipleInstances=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -57,7 +56,7 @@ begin
   Exec('cmd.exe', ExpandConstant('/c ping 127.0.0.1 -n ' + IntToStr(Seconds + 1) + ' >nul'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
-procedure KillYiKeProcesses();
+procedure KillYiKeProcesses;
 var
   ResultCode: Integer;
 begin
@@ -76,7 +75,7 @@ begin
       '是否现在自动关闭忆刻并继续安装？',
       mbConfirmation, MB_YESNO) = IDYES then
     begin
-      KillYiKeProcesses();
+      KillYiKeProcesses;
       if CheckForMutexes('YiKeDesktopMutex') then
       begin
         MsgBox(
@@ -96,7 +95,7 @@ var
   AppDir: String;
 begin
   AppDir := ExpandConstant('{app}');
-  KillYiKeProcesses();
+  KillYiKeProcesses;
 
   if CheckForMutexes('YiKeDesktopMutex') then
   begin

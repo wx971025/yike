@@ -116,11 +116,15 @@ $iscc = @(
 if ($iscc) {
     Write-Host "==> Building installer YiKeSetup.exe ..."
     & $iscc "/DMyAppVersion=$AppVersion" (Join-Path $PkgDir "installer\yike.iss")
-    $setup = Join-Path $PkgDir "output\YiKeSetup.exe"
-    if (Test-Path $setup) {
-        $sizeMb = [math]::Round((Get-Item $setup).Length / 1MB, 1)
-        Write-Host ("==> Installer: {0} ({1} MB)" -f $setup, $sizeMb)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Inno Setup compile failed with exit code $LASTEXITCODE"
     }
+    $setup = Join-Path $PkgDir "output\YiKeSetup.exe"
+    if (-not (Test-Path $setup)) {
+        throw "Inno Setup finished but installer not found: $setup"
+    }
+    $sizeMb = [math]::Round((Get-Item $setup).Length / 1MB, 1)
+    Write-Host ("==> Installer: {0} ({1} MB)" -f $setup, $sizeMb)
 } else {
     Write-Warning "Inno Setup 6 not found; skipped YiKeSetup.exe. Run output\stage\YiKe\YiKe.exe directly."
 }
