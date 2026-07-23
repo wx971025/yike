@@ -98,6 +98,9 @@ def reviews_today_words(
                 ReviewWordOut(**data, due_date=due, overdue_days=(today - due).days)
             )
     result.sort(key=lambda r: r.overdue_days, reverse=True)
+    cap = user.word_review_daily_cap
+    if cap is not None:
+        result = result[:cap]
     return result
 
 

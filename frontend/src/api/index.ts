@@ -35,8 +35,11 @@ export const authApi = {
     return api.post<{ access_token: string }>("/auth/login", form);
   },
   me: () => api.get<User>("/auth/me"),
-  updateProfile: (payload: { nickname?: string; avatar?: string }) =>
-    api.put<User>("/auth/profile", payload),
+  updateProfile: (payload: {
+    nickname?: string;
+    avatar?: string;
+    word_review_daily_cap?: number | null;
+  }) => api.put<User>("/auth/profile", payload),
   getAiConfigStatus: () => api.get<AiConfigStatus>("/auth/ai-config"),
   listAiConfigs: () => api.get<AiConfigItem[]>("/auth/ai-configs"),
   createAiConfig: (payload: {

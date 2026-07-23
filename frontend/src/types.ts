@@ -3,6 +3,7 @@ export interface User {
   username: string;
   nickname: string;
   avatar: string;
+  word_review_daily_cap: number | null;
   created_at: string;
 }
 

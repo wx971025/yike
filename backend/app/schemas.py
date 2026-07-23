@@ -17,12 +17,21 @@ class UserOut(BaseModel):
     username: str
     nickname: str
     avatar: str
+    word_review_daily_cap: int | None = None
     created_at: datetime
 
 
 class UserProfileUpdate(BaseModel):
     nickname: str | None = Field(default=None, max_length=64)
     avatar: str | None = Field(default=None, max_length=32)
+    word_review_daily_cap: int | None = None
+
+    @field_validator("word_review_daily_cap")
+    @classmethod
+    def validate_word_review_daily_cap(cls, value: int | None) -> int | None:
+        if value is not None and value < 10:
+            raise ValueError("每日单词复习上限不能小于 10")
+        return value
 
 
 class AiConfigStatusOut(BaseModel):

@@ -877,3 +877,26 @@ def migrate_user_sync_code_v1() -> None:
                 "INSERT INTO schema_meta (key, value) VALUES ('user_sync_code_v1', '1')"
             )
         )
+
+
+def migrate_word_review_daily_cap_v1() -> None:
+    """为用户增加每日单词复习上限（NULL 表示不限，设置时最小 10）。"""
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text(
+                "SELECT value FROM schema_meta WHERE key = 'word_review_daily_cap_v1'"
+            )
+        ).fetchone()
+        if done:
+            return
+        if "word_review_daily_cap" not in _column_names(conn, "users"):
+            conn.execute(
+                text("ALTER TABLE users ADD COLUMN word_review_daily_cap INTEGER")
+            )
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES "
+                "('word_review_daily_cap_v1', '1')"
+            )
+        )

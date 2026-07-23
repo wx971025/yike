@@ -22,6 +22,7 @@ class User(Base):
     sync_code: Mapped[str | None] = mapped_column(
         String(36), unique=True, index=True, nullable=True
     )
+    word_review_daily_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     ai_configs: Mapped[list["UserAiConfig"]] = relationship(

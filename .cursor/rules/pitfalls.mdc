@@ -180,3 +180,8 @@ alwaysApply: true
 
 - **原因**：站点走 HTTP 时 `navigator.clipboard.writeText` 不可用（仅 secure context 即 HTTPS/localhost）。
 - **解决路线**：`copyTextToClipboard` 先尝试 Clipboard API，失败则 `document.execCommand('copy')`；同步码改为可选中 input，点击即可全选手动 Ctrl+C。
+
+### 2026-07-23 · 每日单词复习上限
+
+- **需求**：每日复习单词过多时可设上限，最小 10，无最大值；默认不限。
+- **解决路线**：`users.word_review_daily_cap`（NULL=不限）；`GET /reviews/today/words` 按逾期排序后截断；拼写/认知轨各自独立计数；设置入口在「今日复习 → 单词 → 复习设置」。

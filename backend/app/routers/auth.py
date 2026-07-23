@@ -61,6 +61,8 @@ def update_profile(
         current_user.nickname = data["nickname"].strip()
     if "avatar" in data and data["avatar"] is not None:
         current_user.avatar = data["avatar"].strip()
+    if "word_review_daily_cap" in data:
+        current_user.word_review_daily_cap = data["word_review_daily_cap"]
     db.commit()
     db.refresh(current_user)
     return current_user
