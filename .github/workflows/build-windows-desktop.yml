@@ -31,6 +31,18 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install Inno Setup 6
+        shell: pwsh
+        working-directory: windows-desktop
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { throw "ISCC.exe not found after Inno Setup install" }
+          Write-Host "Inno Setup:" $iscc
+
       - name: Build YiKe desktop app
         run: ./build.ps1
 
