@@ -27,7 +27,11 @@ from ..models import User
 from ..schemas import Token
 from ..services.dict_setup import dictionary_ready
 
-from ..routers.data_transfer import build_export_payload, default_export_filename
+from ..routers.data_transfer import (
+    build_export_payload,
+    default_export_filename,
+    import_payload_for_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +41,7 @@ DEFAULT_USERNAME = "local"
 GITHUB_REPO = "wx971025/yike"
 UPDATE_INSTALLER_NAME = "YiKeSetup.exe"
 DEFAULT_UPDATE_MIRROR_BASE = "http://43.128.141.141/releases/desktop/"
+DEFAULT_CLOUD_API_BASE = "http://43.128.141.141"
 
 
 def _update_mirror_base() -> str:
@@ -297,6 +302,85 @@ def desktop_export_save(request: Request, payload: dict = Body(default_factory=d
         db.close()
 
 
+def _cloud_api_base() -> str:
+    return os.environ.get("YIKE_CLOUD_API_BASE", DEFAULT_CLOUD_API_BASE).rstrip("/")
+
+
+def _http_post_json(url: str, data: dict, *, timeout: int = 120) -> dict:
+    body = json.dumps(data).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": f"YiKe-Desktop/{_app_version()}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise RuntimeError("云端返回格式异常")
+            return payload
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(detail)
+            if isinstance(parsed, dict) and parsed.get("detail"):
+                detail = str(parsed["detail"])
+        except json.JSONDecodeError:
+            pass
+        raise HTTPException(status_code=exc.code, detail=detail or "云端请求失败") from exc
+    except urllib.error.URLError as exc:
+        raise HTTPException(status_code=502, detail="无法连接云端服务器") from exc
+
+
+@router.post("/data/sync/push")
+def desktop_sync_push(request: Request, payload: dict = Body(default_factory=dict)):
+    _require_desktop(request)
+    sync_code = str((payload or {}).get("sync_code") or "").strip()
+    if not sync_code:
+        raise HTTPException(status_code=400, detail="请输入同步码")
+
+    db = SessionLocal()
+    try:
+        user = _ensure_default_user(db)
+        export_payload = build_export_payload(user, db)
+        cloud_body = {"sync_code": sync_code, **export_payload}
+        result = _http_post_json(
+            f"{_cloud_api_base()}/api/data/sync/push",
+            cloud_body,
+        )
+        logger.info("桌面版已上传数据至云端 sync_code=%s", sync_code[:8])
+        return {"ok": True, "cloud": result}
+    finally:
+        db.close()
+
+
+@router.post("/data/sync/pull")
+def desktop_sync_pull(request: Request, payload: dict = Body(default_factory=dict)):
+    _require_desktop(request)
+    sync_code = str((payload or {}).get("sync_code") or "").strip()
+    if not sync_code:
+        raise HTTPException(status_code=400, detail="请输入同步码")
+
+    query = urllib.parse.urlencode({"sync_code": sync_code})
+    cloud_payload = _http_get_json(
+        f"{_cloud_api_base()}/api/data/sync/pull?{query}",
+        timeout=120,
+    )
+
+    db = SessionLocal()
+    try:
+        user = _ensure_default_user(db)
+        result = import_payload_for_user(user, db, cloud_payload, mode="replace")
+        logger.info("桌面版已从云端同步数据 sync_code=%s", sync_code[:8])
+        return {"ok": True, **result}
+    finally:
+        db.close()
+
+
 @router.get("/dictionary/status")
 def dictionary_status(request: Request):
     _require_desktop(request)
@@ -453,11 +537,23 @@ def _http_get_json(url: str, *, timeout: int = 20) -> dict:
         url,
         headers={"User-Agent": f"YiKe-Desktop/{_app_version()}"},
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-        if not isinstance(data, dict):
-            raise RuntimeError("更新元数据格式异常")
-        return data
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if not isinstance(data, dict):
+                raise RuntimeError("更新元数据格式异常")
+            return data
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(detail)
+            if isinstance(parsed, dict) and parsed.get("detail"):
+                detail = str(parsed["detail"])
+        except json.JSONDecodeError:
+            pass
+        raise HTTPException(status_code=exc.code, detail=detail or "云端请求失败") from exc
+    except urllib.error.URLError as exc:
+        raise HTTPException(status_code=502, detail="无法连接云端服务器") from exc
 
 
 def _parse_github_release() -> dict:

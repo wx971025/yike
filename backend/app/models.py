@@ -19,6 +19,9 @@ class User(Base):
     ai_api_key: Mapped[str] = mapped_column(String(512), default="")
     ai_model: Mapped[str] = mapped_column(String(128), default="")
     ai_config_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    sync_code: Mapped[str | None] = mapped_column(
+        String(36), unique=True, index=True, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     ai_configs: Mapped[list["UserAiConfig"]] = relationship(

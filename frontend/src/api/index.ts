@@ -363,4 +363,5 @@ export const dataApi = {
   export: () => api.get<Blob>("/data/export", { responseType: "blob" }),
   import: (payload: unknown, mode: "merge" | "replace" = "merge") =>
     api.post<ImportResult>("/data/import", payload, { params: { mode } }),
+  getSyncCode: () => api.get<{ sync_code: string }>("/data/sync-code"),
 };

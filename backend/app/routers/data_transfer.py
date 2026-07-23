@@ -5,10 +5,11 @@
 """
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import Date, DateTime
 from sqlalchemy import inspect as sa_inspect
@@ -89,15 +90,13 @@ def default_export_filename() -> str:
     return f"yike-backup-{datetime.now():%Y%m%d-%H%M%S}.json"
 
 
-@router.get("/export")
-def export_data(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    payload = build_export_payload(user, db)
-    filename = default_export_filename()
-    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
-    return JSONResponse(content=payload, headers=headers)
+def ensure_user_sync_code(user: User, db: Session) -> str:
+    if user.sync_code:
+        return user.sync_code
+    user.sync_code = str(uuid.uuid4())
+    db.commit()
+    db.refresh(user)
+    return user.sync_code
 
 
 def _normalize_row_id(value: Any) -> int | None:
@@ -109,24 +108,28 @@ def _normalize_row_id(value: Any) -> int | None:
         return None
 
 
-@router.post("/import")
-def import_data(
-    payload: dict = Body(...),
-    mode: str = "merge",
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+def _validate_export_payload(payload: dict) -> dict:
     if not isinstance(payload, dict) or payload.get("format") != EXPORT_FORMAT:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="文件格式不正确，请选择由本应用导出的备份文件",
         )
-
     data = payload.get("data") or {}
     if not isinstance(data, dict):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="备份文件内容损坏"
         )
+    return data
+
+
+def import_payload_for_user(
+    user: User,
+    db: Session,
+    payload: dict,
+    *,
+    mode: str = "merge",
+) -> dict:
+    data = _validate_export_payload(payload)
 
     if mode == "replace":
         for model in (ConfusablePair, Item, Word, Skill, Group):
@@ -184,3 +187,66 @@ def import_data(
             "skills": len(data.get("skills", []) or []),
         },
     }
+
+
+def _user_by_sync_code(sync_code: str, db: Session) -> User:
+    code = sync_code.strip()
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="请提供同步码"
+        )
+    user = db.query(User).filter(User.sync_code == code).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="同步码无效"
+        )
+    return user
+
+
+@router.get("/export")
+def export_data(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    payload = build_export_payload(user, db)
+    filename = default_export_filename()
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return JSONResponse(content=payload, headers=headers)
+
+
+@router.get("/sync-code")
+def get_sync_code(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return {"sync_code": ensure_user_sync_code(user, db)}
+
+
+@router.post("/sync/push")
+def sync_push(payload: dict = Body(...), db: Session = Depends(get_db)):
+    sync_code = str(payload.get("sync_code") or "").strip()
+    user = _user_by_sync_code(sync_code, db)
+    export_payload = {
+        key: value for key, value in payload.items() if key != "sync_code"
+    }
+    result = import_payload_for_user(user, db, export_payload, mode="replace")
+    return {"ok": True, **result}
+
+
+@router.get("/sync/pull")
+def sync_pull(
+    sync_code: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+):
+    user = _user_by_sync_code(sync_code, db)
+    return build_export_payload(user, db)
+
+
+@router.post("/import")
+def import_data(
+    payload: dict = Body(...),
+    mode: str = "merge",
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return import_payload_for_user(user, db, payload, mode=mode)

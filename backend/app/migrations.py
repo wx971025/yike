@@ -1,4 +1,5 @@
 import json
+import uuid
 
 from sqlalchemy import text
 
@@ -844,3 +845,35 @@ def migrate_fix_late_review_schedule_v1() -> None:
             )
     finally:
         db.close()
+
+
+def migrate_user_sync_code_v1() -> None:
+    """为用户增加唯一同步码，用于 Web 与桌面端云端数据同步。"""
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text("SELECT value FROM schema_meta WHERE key = 'user_sync_code_v1'")
+        ).fetchone()
+        if done:
+            return
+        if "sync_code" not in _column_names(conn, "users"):
+            conn.execute(text("ALTER TABLE users ADD COLUMN sync_code VARCHAR(36)"))
+        rows = conn.execute(
+            text("SELECT id FROM users WHERE sync_code IS NULL OR sync_code = ''")
+        ).fetchall()
+        for row in rows:
+            conn.execute(
+                text("UPDATE users SET sync_code = :code WHERE id = :id"),
+                {"code": str(uuid.uuid4()), "id": row[0]},
+            )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_sync_code "
+                "ON users(sync_code)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES ('user_sync_code_v1', '1')"
+            )
+        )

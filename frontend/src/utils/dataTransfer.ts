@@ -1,6 +1,8 @@
 import api, { getToken } from "../api/client";
-import { dataApi } from "../api";
+import { dataApi, type ImportResult } from "../api";
 import { isDesktopApp } from "./onboarding";
+
+const SYNC_CODE_STORAGE_KEY = "yike_sync_code";
 
 declare global {
   interface Window {
@@ -141,4 +143,47 @@ export function formatExportError(err: unknown): string {
     return (err as { response: { data: { detail: string } } }).response.data.detail;
   }
   return "导出失败，请稍后重试";
+}
+
+export function getStoredSyncCode(): string {
+  return localStorage.getItem(SYNC_CODE_STORAGE_KEY) ?? "";
+}
+
+export function storeSyncCode(syncCode: string): void {
+  localStorage.setItem(SYNC_CODE_STORAGE_KEY, syncCode.trim());
+}
+
+export async function pushLocalDataToCloud(syncCode: string): Promise<void> {
+  const code = syncCode.trim();
+  if (!code) {
+    throw new Error("请输入同步码");
+  }
+  storeSyncCode(code);
+  await api.post("/desktop/data/sync/push", { sync_code: code });
+}
+
+export async function pullCloudDataToLocal(syncCode: string): Promise<ImportResult> {
+  const code = syncCode.trim();
+  if (!code) {
+    throw new Error("请输入同步码");
+  }
+  if (
+    !window.confirm(
+      "从云端同步将清空本机全部学习进度，并用云端数据覆盖。确定继续吗？"
+    )
+  ) {
+    throw new Error("已取消同步");
+  }
+  storeSyncCode(code);
+  const res = await api.post<ImportResult>("/desktop/data/sync/pull", {
+    sync_code: code,
+  });
+  return res.data;
+}
+
+export function formatSyncError(err: unknown): string {
+  if (err instanceof Error && err.message === "已取消同步") {
+    return err.message;
+  }
+  return formatExportError(err);
 }

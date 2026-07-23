@@ -170,3 +170,8 @@ alwaysApply: true
 
 - **原因**：pywebview 默认关闭窗口会销毁进程；后端在 daemon 线程，主线程退出后一并结束。
 - **解决路线**：集成 `pystray` 系统托盘；`window.events.closing` 拦截关闭并 `hide()`；托盘菜单提供「打开忆刻 / 退出」，仅「退出」才真正 `destroy()` 结束进程。
+
+### 2026-07-23 · Web 与桌面进度云端同步
+
+- **原因**：Web 与 Windows 本地 SQLite 各自独立，仅靠 JSON 文件手动导入导出不便。
+- **解决路线**：`users.sync_code`（UUID，注册或迁移时生成，不可改删）；Web 展示同步码；桌面输入同步码后 `POST /api/desktop/data/sync/push|pull` 代理至云端 `YIKE_CLOUD_API_BASE`（默认 `http://43.128.141.141`）；push/pull 均先清空目标端再以 replace 模式导入。

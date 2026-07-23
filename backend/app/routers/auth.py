@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -23,7 +25,11 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
     exists = db.query(User).filter(User.username == payload.username).first()
     if exists:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="用户名已存在")
-    user = User(username=payload.username, password_hash=hash_password(payload.password))
+    user = User(
+        username=payload.username,
+        password_hash=hash_password(payload.password),
+        sync_code=str(uuid.uuid4()),
+    )
     db.add(user)
     db.commit()
     return Token(access_token=create_access_token(user.username))

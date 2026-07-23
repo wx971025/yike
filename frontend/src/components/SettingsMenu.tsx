@@ -134,7 +134,7 @@ export default function SettingsMenu({ onOpenAiConfig }: SettingsMenuProps) {
                 }}
                 className="w-full px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
               >
-                数据备份
+                数据备份与同步
               </button>
               {isDesktopApp() ? (
                 <>
