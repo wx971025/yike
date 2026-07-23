@@ -58,9 +58,11 @@ export default function AiConfigModal({ onClose }: AiConfigModalProps) {
   const [revealedKeys, setRevealedKeys] = useState<Record<number, string>>({});
   const [revealingId, setRevealingId] = useState<number | null>(null);
 
-  const loadConfigs = useCallback(async () => {
+  const loadConfigs = useCallback(async (options?: { preserveFeedback?: boolean }) => {
     setLoading(true);
-    setError("");
+    if (!options?.preserveFeedback) {
+      setError("");
+    }
     try {
       const res = await authApi.listAiConfigs();
       setConfigs(res.data);
@@ -76,15 +78,17 @@ export default function AiConfigModal({ onClose }: AiConfigModalProps) {
     void loadConfigs();
   }, [loadConfigs]);
 
-  const resetForm = () => {
+  const resetForm = (options?: { clearFeedback?: boolean }) => {
     setEditingId(null);
     setTitle("");
     setBaseUrl("");
     setApiKey("");
     setModel("");
     setApiKeySet(false);
-    setError("");
-    setMessage("");
+    if (options?.clearFeedback !== false) {
+      setError("");
+      setMessage("");
+    }
   };
 
   const openCreateForm = () => {
@@ -157,10 +161,10 @@ export default function AiConfigModal({ onClose }: AiConfigModalProps) {
     setMessage("");
     try {
       await persistForm();
-      await loadConfigs();
+      await loadConfigs({ preserveFeedback: true });
       setMessage("配置已保存");
       setView("list");
-      resetForm();
+      resetForm({ clearFeedback: false });
     } catch (err: any) {
       setError(extractErrorMessage(err, "保存失败，请稍后再试"));
     } finally {
@@ -184,13 +188,14 @@ export default function AiConfigModal({ onClose }: AiConfigModalProps) {
         model: model.trim(),
         ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
       });
-      await loadConfigs();
+      await loadConfigs({ preserveFeedback: true });
       setMessage("连通测试通过");
       setView("list");
-      resetForm();
+      resetForm({ clearFeedback: false });
     } catch (err: any) {
-      setError(extractErrorMessage(err, "连通测试失败"));
-      await loadConfigs();
+      const msg = extractErrorMessage(err, "连通测试失败");
+      await loadConfigs({ preserveFeedback: true });
+      setError(msg);
     } finally {
       setTesting(false);
     }
