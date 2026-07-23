@@ -21,18 +21,20 @@ services:
       - backend
     restart: unless-stopped
 
-  gateway:
-    image: nginx:1.27-alpine
-    environment:
-      - TZ=Asia/Shanghai
-    ports:
-      - "0.0.0.0:80:80"
-    volumes:
-      - ./deploy/nginx-yike.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./releases/desktop:/srv/desktop-releases:ro
-    depends_on:
-      - frontend
-    restart: unless-stopped
+  # gateway 网关容器暂停由 compose 管控（my-yike.online 域名未解封）
+  # 需要时取消注释即可恢复；此处注释不影响 backend/frontend 部署。
+  # gateway:
+  #   image: nginx:1.27-alpine
+  #   environment:
+  #     - TZ=Asia/Shanghai
+  #   ports:
+  #     - "0.0.0.0:80:80"
+  #   volumes:
+  #     - ./deploy/nginx-yike.conf:/etc/nginx/conf.d/default.conf:ro
+  #     - ./releases/desktop:/srv/desktop-releases:ro
+  #   depends_on:
+  #     - frontend
+  #   restart: unless-stopped
 
 volumes:
   db_data:

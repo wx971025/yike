@@ -18,6 +18,11 @@ alwaysApply: true
 
 ## 记录
 
+### 2026-07-23 · 新增 macOS 桌面版（mac-desktop）
+
+- **原因**：需在 Windows 版之外提供 Mac 原生 .app/.dmg；Linux 无法交叉编译 macOS 应用，pywebview 在 Mac 用 WKWebView(cocoa/pyobjc) 而非 WebView2/pythonnet，`pystray` 托盘与 cocoa 主线程 run loop 冲突。
+- **解决路线**：新建 `mac-desktop/`（镜像 `windows-desktop/` 结构），前端/后端零改动，通过 `patches/` 套用到 `workspace/`；`launcher/entry.py` 数据目录改 `~/Library/Application Support/YiKe/`、日志 `~/Library/Logs/YiKe/`、崩溃用 `osascript` 弹窗、cocoa 后端、不做托盘（关窗即退出）；`packaging/yike-mac.spec` 用 `BUNDLE` 产 .app + `collect_all(webview/objc/WebKit/...)`；`build.sh` 打包后 `codesign --force --deep --sign -` ad-hoc 签名 + `hdiutil` 生成 `YiKe-mac-arm64.dmg`；CI `build-mac-desktop.yml` 跑 `macos-latest`(arm64)。更新仅「检查更新→下载 dmg→`open` 挂载」，非静默自动安装。首启若被 Gatekeeper 拦截需右键打开或 `xattr -dr com.apple.quarantine`。待实体机构建验证（占位，构建中补充）。
+
 ### 2026-07-22 · 桌面版新手引导每次打开都出现
 
 - **原因**：pywebview/WebView2 未设置 `storage_path` 时 localStorage 不持久；桌面版 token 有 bootstrap 兜底所以仍免登录，但引导完成标记只写 localStorage，重启后丢失。

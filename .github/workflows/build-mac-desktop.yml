@@ -1,0 +1,49 @@
+name: Build macOS Desktop
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "mac-desktop/**"
+      - "backend/**"
+      - "frontend/**"
+
+concurrency:
+  group: build-mac-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-desktop:
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: mac-desktop
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Build YiKe macOS app
+        run: |
+          chmod +x build.sh sync-source.sh packaging/make_dmg.sh
+          ./build.sh
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v6
+        with:
+          name: YiKe-mac-arm64-dmg
+          path: mac-desktop/output/YiKe-mac-arm64.dmg
+          if-no-files-found: warn
+          retention-days: 30
