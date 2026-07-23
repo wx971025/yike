@@ -1,4 +1,4 @@
-name: Release Windows Desktop
+name: Release Desktop
 
 on:
   push:
@@ -12,19 +12,35 @@ on:
         default: "v1.0.0"
 
 concurrency:
-  group: release-windows-desktop-${{ github.ref }}
+  group: release-desktop-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  release:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      app_version: ${{ steps.meta.outputs.app_version }}
+    steps:
+      - name: Resolve release tag
+        id: meta
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "app_version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+  build-windows:
+    needs: meta
     runs-on: windows-latest
-    permissions:
-      contents: write
     defaults:
       run:
         shell: pwsh
         working-directory: windows-desktop
-
     steps:
       - uses: actions/checkout@v5
         with:
@@ -51,20 +67,8 @@ jobs:
           if (-not $iscc) { throw "ISCC.exe not found after Inno Setup install" }
           Write-Host "Inno Setup:" $iscc
 
-      - name: Resolve release tag
-        id: meta
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.tag }}"
-          else
-            TAG="${GITHUB_REF_NAME}"
-          fi
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "app_version=${TAG#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Build YiKe desktop app
-        run: ./build.ps1 -AppVersion "${{ steps.meta.outputs.app_version }}"
+      - name: Build YiKe Windows app
+        run: ./build.ps1 -AppVersion "${{ needs.meta.outputs.app_version }}"
 
       - name: Verify installer
         shell: pwsh
@@ -75,13 +79,85 @@ jobs:
           }
           Write-Host "Installer ready:" (Get-Item $exe).Length "bytes"
 
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-installer
+          path: windows-desktop/output/YiKeSetup.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  build-mac:
+    needs: meta
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: mac-desktop
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Build YiKe macOS app
+        run: |
+          chmod +x build.sh sync-source.sh packaging/make_dmg.sh
+          ./build.sh --version "${{ needs.meta.outputs.app_version }}"
+
+      - name: Verify dmg
+        run: |
+          dmg="output/YiKe-mac-arm64.dmg"
+          if [ ! -f "$dmg" ]; then
+            echo "DMG not found: $dmg" >&2
+            exit 1
+          fi
+          echo "DMG ready: $(stat -f%z "$dmg") bytes"
+
+      - name: Upload macOS dmg artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: mac-dmg
+          path: mac-desktop/output/YiKe-mac-arm64.dmg
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: [meta, build-windows, build-mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: dist
+
+      - name: List artifacts
+        run: find dist -type f -print
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: 忆刻 YiKe ${{ steps.meta.outputs.tag }}
-          body_path: .github/release-notes/${{ steps.meta.outputs.tag }}.md
-          files: windows-desktop/output/YiKeSetup.exe
+          tag_name: ${{ needs.meta.outputs.tag }}
+          name: 忆刻 YiKe ${{ needs.meta.outputs.tag }}
+          body_path: .github/release-notes/${{ needs.meta.outputs.tag }}.md
+          files: |
+            dist/windows-installer/YiKeSetup.exe
+            dist/mac-dmg/YiKe-mac-arm64.dmg
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
