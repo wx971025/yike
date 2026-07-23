@@ -1,3 +1,4 @@
+import api, { getToken } from "../api/client";
 import { dataApi } from "../api";
 import { isDesktopApp } from "./onboarding";
 
@@ -6,12 +7,12 @@ declare global {
     pywebview?: {
       api?: {
         save_export?: (
-          content: string,
-          filename: string
+          filename?: string
         ) => Promise<{
           ok: boolean;
           path?: string;
           cancelled?: boolean;
+          fallback?: boolean;
           error?: string;
         }>;
       };
@@ -37,13 +38,9 @@ function downloadJsonInBrowser(content: string, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-export async function exportUserData(): Promise<{ saved: boolean; path?: string }> {
-  const res = await dataApi.export();
-  const filename = parseExportFilename(res.headers?.["content-disposition"]);
-  const content = await (res.data as Blob).text();
-
-  if (isDesktopApp() && window.pywebview?.api?.save_export) {
-    const result = await window.pywebview.api.save_export(content, filename);
+async function exportOnDesktop(): Promise<{ saved: boolean; path?: string }> {
+  if (window.pywebview?.api?.save_export) {
+    const result = await window.pywebview.api.save_export("");
     if (result.cancelled) {
       return { saved: false };
     }
@@ -53,6 +50,42 @@ export async function exportUserData(): Promise<{ saved: boolean; path?: string 
     return { saved: true, path: result.path };
   }
 
+  const res = await api.post<{ ok: boolean; path: string; filename: string }>(
+    "/desktop/data/export/save"
+  );
+  if (!res.data.ok || !res.data.path) {
+    throw new Error("保存失败");
+  }
+  return { saved: true, path: res.data.path };
+}
+
+export async function exportUserData(): Promise<{ saved: boolean; path?: string }> {
+  if (isDesktopApp()) {
+    if (!getToken()) {
+      throw new Error("尚未登录，请重启应用后再试");
+    }
+    return exportOnDesktop();
+  }
+
+  const res = await dataApi.export();
+  const filename = parseExportFilename(res.headers?.["content-disposition"]);
+  const content = await (res.data as Blob).text();
   downloadJsonInBrowser(content, filename);
   return { saved: true };
+}
+
+export function formatExportError(err: unknown): string {
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "response" in err &&
+    typeof (err as { response?: { data?: { detail?: string } } }).response?.data
+      ?.detail === "string"
+  ) {
+    return (err as { response: { data: { detail: string } } }).response.data.detail;
+  }
+  return "导出失败，请稍后重试";
 }

@@ -63,11 +63,10 @@ def _coerce(model: type, data: dict, overrides: dict) -> Any:
     return model(**kwargs)
 
 
-@router.get("/export")
-def export_data(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+    return model(**kwargs)
+
+
+def build_export_payload(user: User, db: Session) -> dict:
     def owned(model: type) -> list:
         return db.query(model).filter(model.user_id == user.id).all()
 
@@ -79,7 +78,7 @@ def export_data(
         "reminders": [_serialize(x) for x in owned(Reminder)],
         "skills": [_serialize(x) for x in owned(Skill)],
     }
-    payload = {
+    return {
         "format": EXPORT_FORMAT,
         "version": EXPORT_VERSION,
         "app": "YiKe",
@@ -88,7 +87,19 @@ def export_data(
         "counts": {key: len(value) for key, value in data.items()},
         "data": data,
     }
-    filename = f"yike-backup-{datetime.now():%Y%m%d-%H%M%S}.json"
+
+
+def default_export_filename() -> str:
+    return f"yike-backup-{datetime.now():%Y%m%d-%H%M%S}.json"
+
+
+@router.get("/export")
+def export_data(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    payload = build_export_payload(user, db)
+    filename = default_export_filename()
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return JSONResponse(content=payload, headers=headers)
 

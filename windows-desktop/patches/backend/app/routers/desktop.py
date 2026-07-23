@@ -22,6 +22,8 @@ from ..models import User
 from ..schemas import Token
 from ..services.dict_setup import dictionary_ready
 
+from ..routers.data_transfer import build_export_payload, default_export_filename
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/desktop", tags=["desktop"])
@@ -64,6 +66,41 @@ def _save_prefs(data: dict) -> None:
     path = _prefs_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _downloads_dir() -> Path:
+    userprofile = os.environ.get("USERPROFILE")
+    if userprofile:
+        downloads = Path(userprofile) / "Downloads"
+        if downloads.is_dir():
+            return downloads
+    return Path.home() / "Downloads"
+
+
+def _unique_path(directory: Path, filename: str) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / filename
+    if not target.exists():
+        return target
+    stem = Path(filename).stem
+    suffix = Path(filename).suffix or ".json"
+    index = 1
+    while True:
+        candidate = directory / f"{stem} ({index}){suffix}"
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def _write_export_file(payload: dict, filename: str, directory: Path | None = None) -> Path:
+    target_dir = directory or _downloads_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = _unique_path(target_dir, filename)
+    target_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return target_path
 
 
 @dataclass
@@ -137,6 +174,32 @@ def mark_onboarding_preference(user_id: int, request: Request):
         completed_ids.append(user_id)
     _save_prefs(prefs)
     return {"completed": True}
+
+
+@router.get("/data/export")
+def desktop_export_data(request: Request):
+    _require_desktop(request)
+    db = SessionLocal()
+    try:
+        user = _ensure_default_user(db)
+        return build_export_payload(user, db)
+    finally:
+        db.close()
+
+
+@router.post("/data/export/save")
+def desktop_export_save(request: Request):
+    _require_desktop(request)
+    db = SessionLocal()
+    try:
+        user = _ensure_default_user(db)
+        payload = build_export_payload(user, db)
+        filename = default_export_filename()
+        target_path = _write_export_file(payload, filename)
+        logger.info("桌面版数据已导出: %s", target_path)
+        return {"ok": True, "path": str(target_path), "filename": target_path.name}
+    finally:
+        db.close()
 
 
 @router.get("/dictionary/status")

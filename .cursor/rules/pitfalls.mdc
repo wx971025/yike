@@ -94,6 +94,11 @@ alwaysApply: false
 
 <!-- 在此追加新条目，最新的放在最上面 -->
 
+### 2026-07-23 · 桌面版数据导出 js_api 传大 JSON 失败
+
+- **原因**：前端把完整备份 JSON 经 `window.pywebview.api.save_export(content, …)` 传给 Python，数据稍大或桥接异常时会失败；另保存对话框在非 GUI 线程调用也可能报错。
+- **解决路线**：Python 端改从 `http://127.0.0.1:{YIKE_PORT}/api/desktop/data/export` 拉取数据再写盘；新增 `/api/desktop/data/export/save` 作为无 js_api 时的后备（直接保存到「下载」）；对话框失败时自动降级到 Downloads。
+
 ### 2026-07-23 · 桌面版数据导出无反应
 
 - **原因**：WebView2 内 `<a download>` + Blob URL 不会触发系统保存对话框，点击导出看似成功但文件不会落盘。

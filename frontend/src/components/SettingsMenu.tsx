@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { dataApi } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useTheme, type Theme } from "../context/ThemeContext";
-import { exportUserData } from "../utils/dataTransfer";
+import { exportUserData, formatExportError } from "../utils/dataTransfer";
 import { displayName } from "../utils/userProfile";
 import { GearIcon } from "./ItemIcons";
 import UserAvatar from "./UserAvatar";
@@ -62,8 +62,8 @@ export default function SettingsMenu({ onOpenAiConfig }: SettingsMenuProps) {
       if (result.saved && result.path) {
         window.alert(`导出成功，已保存到：\n${result.path}`);
       }
-    } catch {
-      window.alert("导出失败，请稍后重试");
+    } catch (err) {
+      window.alert(formatExportError(err));
     } finally {
       setBusy(null);
     }

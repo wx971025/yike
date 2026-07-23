@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import socket
@@ -173,46 +174,95 @@ def _tray_icon_path() -> Path:
 class _DesktopBridge:
     """供前端通过 window.pywebview.api 调用的桌面能力。"""
 
-    def save_export(self, content: str, filename: str) -> dict:
+    def _fetch_export_payload(self) -> tuple[dict, str]:
+        port = int(os.environ.get("YIKE_PORT", "17890"))
+        url = f"http://127.0.0.1:{port}/api/desktop/data/export"
+        with urllib.request.urlopen(url, timeout=120) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        filename = f"yike-backup-{time.strftime('%Y%m%d-%H%M%S')}.json"
+        return payload, filename
+
+    def _downloads_dir(self) -> Path:
+        userprofile = os.environ.get("USERPROFILE")
+        if userprofile:
+            downloads = Path(userprofile) / "Downloads"
+            if downloads.is_dir():
+                return downloads
+        return Path.home() / "Downloads"
+
+    def _unique_path(self, directory: Path, filename: str) -> Path:
+        directory.mkdir(parents=True, exist_ok=True)
+        target = directory / filename
+        if not target.exists():
+            return target
+        stem = Path(filename).stem
+        suffix = Path(filename).suffix or ".json"
+        index = 1
+        while True:
+            candidate = directory / f"{stem} ({index}){suffix}"
+            if not candidate.exists():
+                return candidate
+            index += 1
+
+    def save_export(self, filename: str = "") -> dict:
         try:
             import webview
         except Exception as exc:
             logger.exception("导出时无法加载 pywebview")
             return {"ok": False, "error": str(exc)}
 
-        if not webview.windows:
-            return {"ok": False, "error": "窗口未就绪"}
+        try:
+            payload, default_name = self._fetch_export_payload()
+        except Exception as exc:
+            logger.exception("读取导出数据失败")
+            return {"ok": False, "error": f"读取数据失败: {exc}"}
 
-        safe_name = Path(filename).name or "yike-backup.json"
+        safe_name = Path(filename or default_name).name or default_name
         if not safe_name.lower().endswith(".json"):
             safe_name = f"{safe_name}.json"
 
+        content = json.dumps(payload, ensure_ascii=False, indent=2)
+
+        if webview.windows:
+            dialog_error = ""
+            result = None
+            try:
+                result = webview.windows[0].create_file_dialog(
+                    webview.FileDialog.SAVE,
+                    save_filename=safe_name,
+                    file_types=("备份文件 (*.json)", "All files (*.*)"),
+                )
+            except Exception as exc:
+                logger.exception("打开保存对话框失败，将保存到「下载」文件夹")
+                dialog_error = str(exc)
+
+            if result:
+                target = result[0] if isinstance(result, (tuple, list)) else result
+                target_path = Path(str(target))
+                if target_path.suffix.lower() != ".json":
+                    target_path = target_path.with_suffix(".json")
+                try:
+                    target_path.write_text(content, encoding="utf-8")
+                except Exception as exc:
+                    logger.exception("写入导出文件失败: %s", target_path)
+                    return {"ok": False, "error": str(exc)}
+                logger.info("数据已导出: %s", target_path)
+                return {"ok": True, "path": str(target_path)}
+
+            if not dialog_error:
+                return {"ok": False, "cancelled": True}
+
+            logger.warning("保存对话框不可用，降级到 Downloads: %s", dialog_error)
+
         try:
-            result = webview.windows[0].create_file_dialog(
-                webview.FileDialog.SAVE,
-                save_filename=safe_name,
-                file_types=("备份文件 (*.json)", "All files (*.*)"),
-            )
-        except Exception as exc:
-            logger.exception("打开保存对话框失败")
-            return {"ok": False, "error": str(exc)}
-
-        if not result:
-            return {"ok": False, "cancelled": True}
-
-        target = result[0] if isinstance(result, (tuple, list)) else result
-        target_path = Path(str(target))
-        if target_path.suffix.lower() != ".json":
-            target_path = target_path.with_suffix(".json")
-
-        try:
+            target_path = self._unique_path(self._downloads_dir(), safe_name)
             target_path.write_text(content, encoding="utf-8")
         except Exception as exc:
-            logger.exception("写入导出文件失败: %s", target_path)
+            logger.exception("写入 Downloads 导出文件失败")
             return {"ok": False, "error": str(exc)}
 
-        logger.info("数据已导出: %s", target_path)
-        return {"ok": True, "path": str(target_path)}
+        logger.info("数据已导出到 Downloads: %s", target_path)
+        return {"ok": True, "path": str(target_path), "fallback": True}
 
 
 def _start_tray_icon(
@@ -394,6 +444,7 @@ def main() -> None:
     _configure_logging(data_root / "logs")
     logger.info("启动忆刻桌面版; frozen=%s", getattr(sys, "frozen", False))
     port = _configure_environment(runtime, data_root)
+    os.environ["YIKE_PORT"] = str(port)
 
     static_dir = Path(os.environ["YIKE_STATIC_DIR"])
     if not static_dir.is_dir():
