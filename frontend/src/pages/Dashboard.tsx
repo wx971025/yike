@@ -534,24 +534,12 @@ export default function Dashboard() {
     void loadCompleted();
   };
 
-  const handleWordRecognizeKnown = async (id: number, sawAnswer: boolean) => {
+  const handleWordRecognizeKnown = async (id: number) => {
     const reviewed =
       recognizeQueue[0]?.id === id
         ? recognizeQueue[0]
         : recognizeWords.find((w) => w.id === id);
     if (!reviewed) return;
-
-    if (sawAnswer) {
-      pushWordHistory(reviewed);
-      setRecognizeQueue((prev) => {
-        if (prev.length <= 1) return prev;
-        const [first, ...rest] = prev;
-        if (first.id !== id) return prev;
-        return [...rest, first];
-      });
-      setReviewToast(`${reviewed.word} 已排到队尾，稍后再练`);
-      return;
-    }
 
     setRecognizeQueue((queue) =>
       queue[0]?.id === id ? queue.slice(1) : queue
@@ -986,9 +974,7 @@ export default function Dashboard() {
                 })
               }
               onSpellComplete={(id, wasPeeked) => void handleWordSpellComplete(id, wasPeeked)}
-              onRecognizeKnown={(id, sawAnswer) =>
-                void handleWordRecognizeKnown(id, sawAnswer)
-              }
+              onRecognizeKnown={(id) => void handleWordRecognizeKnown(id)}
               onRecognizeForgot={handleWordRecognizeForgot}
               onSkip={(id) => void handleWordSkip(id)}
               onPeekAnswer={handleWordPeekReset}

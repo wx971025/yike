@@ -20,8 +20,9 @@ alwaysApply: true
 
 ### 2026-07-24 · 偷看答案后单词未排到队尾
 
-- **原因**：拼写复习 `wasPeeked` 时 `handleWordSpellComplete` 仍从队列移除并写入 session 进度，未像认知「忘记」一样排到队尾再练；认知「显示释义」后点「认识」同理。
+- **原因**：拼写复习 `wasPeeked` 时 `handleWordSpellComplete` 仍从队列移除并写入 session 进度；v1.1.21 误将认知「认识」也排队尾，与「仅忘记排队尾」设计不符。
 - **解决路线**：`wasPeeked` / `sawAnswer` 时仅 `pushWordHistory` + 队尾重入，不调 review API、不计 session 进度；Web 已 deploy frontend。
+- **修正**：认知复习仅「忘记」排队尾，「认识」始终算完成；v1.1.22 回滚认知侧的 sawAnswer 逻辑。
 
 ### 2026-07-24 · 云端同步后复习进度（第几个词）不一致
 

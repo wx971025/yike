@@ -45,7 +45,7 @@ interface WordReviewCardProps {
   wordOrderMode?: "shuffle" | "created_at";
   onToggleWordOrder?: () => void;
   onSpellComplete: (id: number, wasPeeked: boolean) => void;
-  onRecognizeKnown: (id: number, sawAnswer: boolean) => void;
+  onRecognizeKnown: (id: number) => void;
   onRecognizeForgot: (id: number) => void;
   onSkip: (id: number) => void;
   onPeekAnswer: (id: number) => void;
@@ -237,7 +237,6 @@ export default function WordReviewCard({
   const totalStages = totalStagesForGroupId(word.group_id);
   const [meaningRevealed, setMeaningRevealed] = useState(false);
   const [spellWasPeeked, setSpellWasPeeked] = useState(false);
-  const [recognizeSawAnswer, setRecognizeSawAnswer] = useState(false);
   const [input, setInput] = useState("");
   const [wrongCount, setWrongCount] = useState(0);
   const [hasError, setHasError] = useState(false);
@@ -276,7 +275,6 @@ export default function WordReviewCard({
   const resetCardState = () => {
     setMeaningRevealed(false);
     setSpellWasPeeked(false);
-    setRecognizeSawAnswer(false);
     setInput("");
     setWrongCount(0);
     setHasError(false);
@@ -392,10 +390,6 @@ export default function WordReviewCard({
   }, [peeked]);
 
   useEffect(() => {
-    if (meaningRevealed) setRecognizeSawAnswer(true);
-  }, [meaningRevealed]);
-
-  useEffect(() => {
     if (isCorrect || meaningRevealed) {
       lockAdvanceBriefly();
     }
@@ -449,14 +443,13 @@ export default function WordReviewCard({
       if (!meaningRevealed) return;
       stopWordPronunciation();
       setIsPlayingPronunciation(false);
-      transitionToNext(() => onRecognizeKnown(word.id, recognizeSawAnswer));
+      transitionToNext(() => onRecognizeKnown(word.id));
     },
     [
       isCorrect,
       isTransitioning,
       meaningRevealed,
       mode,
-      recognizeSawAnswer,
       spellWasPeeked,
       word.id,
       onSpellComplete,
