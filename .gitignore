@@ -13,3 +13,5 @@ dist/
 # 桌面版安装包镜像（由 scripts/sync-desktop-release.sh 生成，勿提交）
 releases/desktop/*
 !releases/desktop/.gitkeep
+
+*.txt
