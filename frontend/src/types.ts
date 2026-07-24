@@ -4,6 +4,14 @@ export interface User {
   nickname: string;
   avatar: string;
   word_review_daily_cap: number | null;
+  word_review_order_mode?: "shuffle" | "created_at";
+  review_ui_prefs?: {
+    keyboard_sound_enabled?: boolean;
+    auto_pronunciation_enabled?: boolean;
+    auto_pronunciation_repeat?: number;
+    pronunciation_accent?: "us" | "uk";
+    auto_confusable_prompt_enabled?: boolean;
+  } | null;
   created_at: string;
 }
 
@@ -105,6 +113,7 @@ export interface ReviewWord extends Word {
 export interface ReviewWordsTodayResponse {
   words: ReviewWord[];
   batch_total: number | null;
+  shuffle_seed: number | null;
 }
 
 export interface ConfusableDiffAnalysis {

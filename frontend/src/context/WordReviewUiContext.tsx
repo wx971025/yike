@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useState,
   type ReactNode,
 } from "react";
@@ -21,6 +22,10 @@ import {
   togglePronunciationAccent as persistTogglePronunciationAccent,
   type PronunciationAccent,
 } from "../utils/wordPronunciation";
+import {
+  REVIEW_SETTINGS_APPLIED_EVENT,
+  scheduleReviewSettingsSync,
+} from "../utils/reviewSettingsSync";
 
 interface WordReviewUiState {
   keyboardSoundEnabled: boolean;
@@ -55,29 +60,47 @@ export function WordReviewUiProvider({ children }: { children: ReactNode }) {
   const [autoConfusablePromptEnabled, setAutoConfusablePromptEnabledState] =
     useState(isAutoConfusablePromptEnabled);
 
+  useEffect(() => {
+    const refresh = () => {
+      setKeyboardSoundEnabledState(isKeyboardSoundEnabled());
+      setAutoPronunciationEnabledState(isAutoPronunciationEnabled());
+      setAutoPronunciationRepeatState(getAutoPronunciationRepeat());
+      setPronunciationAccentState(getPronunciationAccent());
+      setAutoConfusablePromptEnabledState(isAutoConfusablePromptEnabled());
+    };
+    window.addEventListener(REVIEW_SETTINGS_APPLIED_EVENT, refresh);
+    return () =>
+      window.removeEventListener(REVIEW_SETTINGS_APPLIED_EVENT, refresh);
+  }, []);
+
   const setKeyboardSoundEnabled = (enabled: boolean) => {
     persistKeyboardSound(enabled);
     setKeyboardSoundEnabledState(enabled);
+    scheduleReviewSettingsSync();
   };
 
   const setAutoPronunciationEnabled = (enabled: boolean) => {
     persistAutoPronunciation(enabled);
     setAutoPronunciationEnabledState(enabled);
+    scheduleReviewSettingsSync();
   };
 
   const setAutoPronunciationRepeat = (count: number) => {
     persistAutoPronunciationRepeat(count);
     setAutoPronunciationRepeatState(getAutoPronunciationRepeat());
+    scheduleReviewSettingsSync();
   };
 
   const togglePronunciationAccent = () => {
     const next = persistTogglePronunciationAccent();
     setPronunciationAccentState(next);
+    scheduleReviewSettingsSync();
   };
 
   const setAutoConfusablePromptEnabled = (enabled: boolean) => {
     persistAutoConfusablePrompt(enabled);
     setAutoConfusablePromptEnabledState(enabled);
+    scheduleReviewSettingsSync();
   };
 
   return (

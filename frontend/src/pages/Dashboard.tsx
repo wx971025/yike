@@ -20,6 +20,10 @@ import {
   saveWordOrderMode,
   type WordOrderMode,
 } from "../utils/wordReviewOrder";
+import {
+  resolveWordOrderMode,
+  scheduleReviewSettingsSync,
+} from "../utils/reviewSettingsSync";
 import { sortByCreatedAt } from "../utils/sort";
 import { todayStr, getNextReviewDate } from "../utils/reviewSchedule";
 
@@ -31,7 +35,8 @@ function mergeWordReviewQueue(
   sessionDoneIds: ReadonlySet<number>,
   resetSession: (ordered: ReviewWord[], batchTotal?: number | null) => void,
   bumpSessionTotal: (total: number) => void,
-  batchTotal: number | null
+  batchTotal: number | null,
+  shuffleSeed: number | null
 ): ReviewWord[] {
   const available = new Map(words.map((w) => [w.id, w]));
   const kept = prev
@@ -47,7 +52,8 @@ function mergeWordReviewQueue(
     const ordered = orderReviewWords(
       words.filter((w) => !sessionDoneIds.has(w.id)),
       mode,
-      orderSeedKey
+      orderSeedKey,
+      shuffleSeed
     );
     resetSession(ordered, batchTotal);
     return ordered;
@@ -56,7 +62,8 @@ function mergeWordReviewQueue(
   const additions = orderReviewWords(
     words.filter((w) => !keptIds.has(w.id) && !sessionDoneIds.has(w.id)),
     mode,
-    orderSeedKey
+    orderSeedKey,
+    shuffleSeed
   );
   if (additions.length === 0) {
     return kept;
@@ -128,7 +135,9 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<"due" | "stats">("due");
   const [dueSubTab, setDueSubTab] = useState<"item" | "word" | "confusable">("item");
   const [wordTrackTab, setWordTrackTab] = useState<WordReviewTrack>("spell");
-  const [wordOrderMode, setWordOrderMode] = useState<WordOrderMode>(loadWordOrderMode);
+  const [wordOrderMode, setWordOrderMode] = useState<WordOrderMode>(() =>
+    loadWordOrderMode()
+  );
   const [spellQueue, setSpellQueue] = useState<ReviewWord[]>([]);
   const [recognizeQueue, setRecognizeQueue] = useState<ReviewWord[]>([]);
   const [wordHistory, setWordHistory] = useState<ReviewWord[]>([]);
@@ -143,6 +152,8 @@ export default function Dashboard() {
   const recognizeSessionDoneIdsRef = useRef(new Set<number>());
   const spellBatchTotalRef = useRef<number | null>(null);
   const recognizeBatchTotalRef = useRef<number | null>(null);
+  const spellShuffleSeedRef = useRef<number | null>(null);
+  const recognizeShuffleSeedRef = useRef<number | null>(null);
 
   const dueWordGroupFilterKey = groupFilterSeedKey(dueWordGroupFilterIds);
   const spellOrderSeedKey = buildWordOrderSeedKey({
@@ -170,7 +181,14 @@ export default function Dashboard() {
     setRecognizeWords(recognizeRes.data.words);
     spellBatchTotalRef.current = spellRes.data.batch_total;
     recognizeBatchTotalRef.current = recognizeRes.data.batch_total;
+    spellShuffleSeedRef.current = spellRes.data.shuffle_seed;
+    recognizeShuffleSeedRef.current = recognizeRes.data.shuffle_seed;
   }, [dueWordGroupFilterIds]);
+
+  useEffect(() => {
+    if (!user) return;
+    setWordOrderMode(resolveWordOrderMode(user));
+  }, [user?.word_review_order_mode]);
 
   const loadDueConfusablePairs = useCallback(async () => {
     const res = await reviewApi.todayConfusablePairs();
@@ -284,7 +302,8 @@ export default function Dashboard() {
             total
           );
         },
-        spellBatchTotalRef.current
+        spellBatchTotalRef.current,
+        spellShuffleSeedRef.current
       )
     );
   }, [spellWords, resetSpellSession, wordOrderMode, spellOrderSeedKey]);
@@ -304,7 +323,8 @@ export default function Dashboard() {
             total
           );
         },
-        recognizeBatchTotalRef.current
+        recognizeBatchTotalRef.current,
+        recognizeShuffleSeedRef.current
       )
     );
   }, [recognizeWords, resetRecognizeSession, wordOrderMode, recognizeOrderSeedKey]);
@@ -312,7 +332,12 @@ export default function Dashboard() {
   useEffect(() => {
     spellSessionDoneIdsRef.current.clear();
     resetSpellSession(
-      orderReviewWords(spellWords, wordOrderMode, spellOrderSeedKey),
+      orderReviewWords(
+        spellWords,
+        wordOrderMode,
+        spellOrderSeedKey,
+        spellShuffleSeedRef.current
+      ),
       spellBatchTotalRef.current
     );
   }, [wordOrderMode]);
@@ -320,7 +345,12 @@ export default function Dashboard() {
   useEffect(() => {
     recognizeSessionDoneIdsRef.current.clear();
     resetRecognizeSession(
-      orderReviewWords(recognizeWords, wordOrderMode, recognizeOrderSeedKey),
+      orderReviewWords(
+        recognizeWords,
+        wordOrderMode,
+        recognizeOrderSeedKey,
+        recognizeShuffleSeedRef.current
+      ),
       recognizeBatchTotalRef.current
     );
   }, [wordOrderMode]);
@@ -759,6 +789,7 @@ export default function Dashboard() {
                     setWordOrderMode((mode) => {
                       const next = mode === "shuffle" ? "created_at" : "shuffle";
                       saveWordOrderMode(next);
+                      scheduleReviewSettingsSync({ word_review_order_mode: next });
                       return next;
                     })
                   }
@@ -904,6 +935,7 @@ export default function Dashboard() {
                 setWordOrderMode((mode) => {
                   const next = mode === "shuffle" ? "created_at" : "shuffle";
                   saveWordOrderMode(next);
+                  scheduleReviewSettingsSync({ word_review_order_mode: next });
                   return next;
                 })
               }

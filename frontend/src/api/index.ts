@@ -39,6 +39,8 @@ export const authApi = {
     nickname?: string;
     avatar?: string;
     word_review_daily_cap?: number | null;
+    word_review_order_mode?: "shuffle" | "created_at";
+    review_ui_prefs?: Record<string, unknown> | null;
   }) => api.put<User>("/auth/profile", payload),
   getAiConfigStatus: () => api.get<AiConfigStatus>("/auth/ai-config"),
   listAiConfigs: () => api.get<AiConfigItem[]>("/auth/ai-configs"),

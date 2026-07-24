@@ -1,3 +1,4 @@
+import hashlib
 import json
 from datetime import date
 
@@ -23,6 +24,13 @@ def group_filter_key(group_id: int | None, group_ids: list[int] | None) -> str:
     if group_id is not None:
         return f"id:{group_id}"
     return "all"
+
+
+def compute_shuffle_seed(
+    user_id: int, batch_date: date, track: str, group_key: str
+) -> int:
+    raw = f"{user_id}:{batch_date.isoformat()}:{track}:{group_key}:shuffle"
+    return int(hashlib.sha256(raw.encode()).hexdigest()[:8], 16)
 
 
 def _reviewed_today(word: Word, track: WordReviewTrack, today: date) -> bool:
@@ -136,12 +144,16 @@ def get_or_create_daily_batch(
 
     due_entries = _collect_due_words(user, review_track, group_id, group_ids, db, today)
     selected_ids = [word.id for word, _, _ in due_entries[:cap]]
+    shuffle_seed = compute_shuffle_seed(
+        user.id, today, review_track.value, gkey
+    )
     batch = WordReviewDailyBatch(
         user_id=user.id,
         batch_date=today,
         track=review_track.value,
         group_filter_key=gkey,
         word_ids=json.dumps(selected_ids),
+        shuffle_seed=shuffle_seed,
     )
     db.add(batch)
     db.commit()
@@ -155,7 +167,7 @@ def resolve_today_review_words(
     group_id: int | None,
     group_ids: list[int] | None,
     db: Session,
-) -> tuple[list[ReviewWordOut], int | None]:
+) -> tuple[list[ReviewWordOut], int | None, int | None]:
     today = app_today()
     cap = user.word_review_daily_cap
 
@@ -169,14 +181,22 @@ def resolve_today_review_words(
                 for word, due, overdue_days in due_entries
             ],
             None,
+            None,
         )
 
     batch = get_or_create_daily_batch(user, review_track, group_id, group_ids, db)
     if batch is None:
-        return [], cap
+        return [], cap, None
 
     batch_ids: list[int] = json.loads(batch.word_ids)
     words = _load_batch_words(
         user, review_track, batch_ids, group_id, group_ids, db, today
     )
-    return words, len(batch_ids)
+    shuffle_seed = batch.shuffle_seed
+    if shuffle_seed is None:
+        shuffle_seed = compute_shuffle_seed(
+            user.id, batch.batch_date, review_track.value, batch.group_filter_key
+        )
+        batch.shuffle_seed = shuffle_seed
+        db.commit()
+    return words, len(batch_ids), shuffle_seed

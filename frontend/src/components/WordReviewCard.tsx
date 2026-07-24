@@ -33,6 +33,7 @@ import {
 } from "./WordExamplesEditor";
 import { pickReviewExample } from "../utils/wordExampleCloze";
 import { todayStr } from "../utils/reviewSchedule";
+import { shouldIgnoreGlobalShortcut } from "../utils/keyboardShortcuts";
 
 interface WordReviewCardProps {
   word: ReviewWord;
@@ -574,6 +575,7 @@ export default function WordReviewCard({
     if (isTransitioning || createConfusableOpen || editModalOpen || confusablePrompt) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (shouldIgnoreGlobalShortcut(e)) return;
       if (mode === "recognize") {
         if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
           e.preventDefault();
@@ -618,6 +620,7 @@ export default function WordReviewCard({
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (shouldIgnoreGlobalShortcut(e)) return;
       if (createConfusableOpen || editModalOpen || confusablePrompt) return;
       if (!e.ctrlKey || e.altKey) return;
 
@@ -771,6 +774,7 @@ export default function WordReviewCard({
 
   return (
     <div
+      data-review-shortcut-root
       className={`flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-2xl ${
         word.overdue_days > 0
           ? "ring-1 ring-red-200/80 dark:ring-red-900/50"

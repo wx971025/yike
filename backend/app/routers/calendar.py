@@ -80,10 +80,12 @@ def reviews_today_words(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    words, batch_total = resolve_today_review_words(
+    words, batch_total, shuffle_seed = resolve_today_review_words(
         user, review_track, group_id, group_ids, db
     )
-    return ReviewWordsTodayOut(words=words, batch_total=batch_total)
+    return ReviewWordsTodayOut(
+        words=words, batch_total=batch_total, shuffle_seed=shuffle_seed
+    )
 
 
 @router.get("/reviews/today/confusable-pairs", response_model=list[ReviewConfusablePairOut])

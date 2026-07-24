@@ -18,7 +18,16 @@ alwaysApply: true
 
 ## 记录
 
-### 2026-07-23 · AI 配置「测试连通性」无反应（title 必填 + 422 数组错误未渲染）
+### 2026-07-24 · AI 聊天框按空格触发单词复习跳转
+
+- **原因**：`WordReviewCard` / `ConfusablePairReviewCard` 在 `window` 上监听回车/空格确认；焦点在 AI 助手 `textarea` 或其它输入框时，按键仍会触发「下一词 / 已记住」。
+- **解决路线**：新增 `shouldIgnoreGlobalShortcut()`，焦点在外部可编辑控件（非复习卡片内 `data-review-shortcut-root`）时跳过全局快捷键；复习拼写输入框仍在 root 内，答对后空格/回车仍可切词。
+
+### 2026-07-24 · 云端同步未带复习配置与乱序种子
+
+- **原因**：数据导出/同步只含分组、单词等学习数据；每日上限、乱序模式、UI 偏好存 localStorage 或 users 表未写入 export；乱序种子原先由客户端 `hash(userId+日期)` 生成，跨设备 user_id 不同导致顺序不一致。
+- **解决路线**：备份 `version=2` 增加 `settings`（`word_review_daily_cap`、`word_review_order_mode`、`review_ui_prefs`）与 `word_review_daily_batches`（含 `shuffle_seed`）；users 表持久化复习配置；前端 `scheduleReviewSettingsSync` 写回服务端，Dashboard 用 API 返回的 `shuffle_seed` 乱序；导入/拉取后 `authApi.me()` 应用配置。Web 已 deploy backend+frontend。
+
 
 - **原因**：两个叠加缺陷。①`AiConfigUpdate.title`/`AiConfigCreate.title` 有 `min_length=1`，且更新处理器还有 `if not config.title: 400`，导致空标题配置在「测试连通性」前的保存（`PUT /auth/ai-configs/{id}`）返回 **422**（title 只是展示标签，列表本就用「未命名配置」兜底，不该必填）；前端 `canSubmit` 也把 title 设为必填，空标题时测试按钮直接 disabled → 点击「无反应」。②前端 `setError(err.response?.data?.detail ?? ...)` 未处理 FastAPI 422 的 `detail` 是**数组**（`[{msg,loc}]`），`setError(数组)` 后 `<p>{error}</p>` 渲染对象数组 → React 崩溃/空白，错误彻底不显示，表现为「无反应」。
 - **解决路线**：后端 title 改为可选（去掉 `min_length`，`AiConfigCreate.title` 默认 `""`，更新处理器删掉 title 的 400 校验，仍校验 base_url/api_key/model）；前端加 `extractErrorMessage()` 把字符串/数组 `detail` 统一提取为可读文案并用于所有 catch，`canSubmit`/`handleSave` 不再要求 title。已用真实 HTTP 复现并验证 create-no-title→201、PUT 空 title→200。Web 已 deploy backend+frontend，桌面随 v1.1.15 发版。

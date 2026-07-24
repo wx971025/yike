@@ -18,19 +18,47 @@ class UserOut(BaseModel):
     nickname: str
     avatar: str
     word_review_daily_cap: int | None = None
+    word_review_order_mode: str = "shuffle"
+    review_ui_prefs: dict[str, Any] | None = None
     created_at: datetime
+
+    @field_validator("review_ui_prefs", mode="before")
+    @classmethod
+    def parse_review_ui_prefs(cls, value: Any) -> dict[str, Any] | None:
+        if value is None or value == "":
+            return None
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                return parsed if isinstance(parsed, dict) else None
+            except json.JSONDecodeError:
+                return None
+        return None
 
 
 class UserProfileUpdate(BaseModel):
     nickname: str | None = Field(default=None, max_length=64)
     avatar: str | None = Field(default=None, max_length=32)
     word_review_daily_cap: int | None = None
+    word_review_order_mode: str | None = None
+    review_ui_prefs: dict[str, Any] | None = None
 
     @field_validator("word_review_daily_cap")
     @classmethod
     def validate_word_review_daily_cap(cls, value: int | None) -> int | None:
         if value is not None and value < 10:
             raise ValueError("每日单词复习上限不能小于 10")
+        return value
+
+    @field_validator("word_review_order_mode")
+    @classmethod
+    def validate_word_review_order_mode(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        if value not in ("shuffle", "created_at"):
+            raise ValueError("word_review_order_mode 须为 shuffle 或 created_at")
         return value
 
 
@@ -343,6 +371,7 @@ class ReviewWordOut(WordOut):
 class ReviewWordsTodayOut(BaseModel):
     words: list[ReviewWordOut]
     batch_total: int | None = None
+    shuffle_seed: int | None = None
 
 
 class ConfusablePairOut(BaseModel):

@@ -60,7 +60,8 @@ export function buildWordOrderSeedKey(parts: {
 export function orderReviewWords(
   words: ReviewWord[],
   mode: WordOrderMode,
-  seedKey?: string
+  seedKey?: string,
+  explicitSeed?: number | null
 ): ReviewWord[] {
   if (mode === "created_at") {
     return sortByCreatedAt(words, "asc");
@@ -68,7 +69,10 @@ export function orderReviewWords(
   if (words.length <= 1) {
     return words;
   }
-  const rng = mulberry32(seedKey ? hashSeed(`${seedKey}:shuffle`) : Date.now());
+  const seed =
+    explicitSeed ??
+    (seedKey ? hashSeed(`${seedKey}:shuffle`) : Date.now());
+  const rng = mulberry32(seed >>> 0);
   const shuffled = [...words];
   for (let i = shuffled.length - 1; i > 0; i -= 1) {
     const j = Math.floor(rng() * (i + 1));

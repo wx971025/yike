@@ -941,3 +941,38 @@ def migrate_word_review_daily_batch_v1() -> None:
                 "('word_review_daily_batch_v1', '1')"
             )
         )
+
+
+def migrate_user_review_settings_v1() -> None:
+    """用户复习配置与批次乱序种子（同步/export 用）。"""
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text(
+                "SELECT value FROM schema_meta WHERE key = 'user_review_settings_v1'"
+            )
+        ).fetchone()
+        if done:
+            return
+        if "word_review_order_mode" not in _column_names(conn, "users"):
+            conn.execute(
+                text(
+                    "ALTER TABLE users ADD COLUMN word_review_order_mode "
+                    "VARCHAR(16) NOT NULL DEFAULT 'shuffle'"
+                )
+            )
+        if "review_ui_prefs" not in _column_names(conn, "users"):
+            conn.execute(text("ALTER TABLE users ADD COLUMN review_ui_prefs TEXT"))
+        if "shuffle_seed" not in _column_names(conn, "word_review_daily_batches"):
+            conn.execute(
+                text(
+                    "ALTER TABLE word_review_daily_batches "
+                    "ADD COLUMN shuffle_seed INTEGER"
+                )
+            )
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES "
+                "('user_review_settings_v1', '1')"
+            )
+        )

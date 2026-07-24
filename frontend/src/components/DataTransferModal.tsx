@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { dataApi } from "../api";
+import { authApi, dataApi } from "../api";
+import { useAuth } from "../context/AuthContext";
 import {
   chooseDesktopExportDir,
   exportUserData,
@@ -22,6 +23,7 @@ interface DataTransferModalProps {
 type View = "menu" | "export";
 
 export default function DataTransferModal({ onClose }: DataTransferModalProps) {
+  const { updateUser } = useAuth();
   const [view, setView] = useState<View>("menu");
   const [busy, setBusy] = useState(false);
   const [exportDir, setExportDir] = useState("");
@@ -69,6 +71,15 @@ export default function DataTransferModal({ onClose }: DataTransferModalProps) {
     fileInputRef.current?.click();
   };
 
+  const refreshUserAfterImport = async () => {
+    try {
+      const me = await authApi.me();
+      updateUser(me.data);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -85,6 +96,7 @@ export default function DataTransferModal({ onClose }: DataTransferModalProps) {
       const payload = JSON.parse(text);
       const res = await dataApi.import(payload, replace ? "replace" : "merge");
       const c = res.data.imported;
+      await refreshUserAfterImport();
       window.dispatchEvent(new CustomEvent("app-data-changed"));
       window.alert(
         `导入完成：\n分组 ${c.groups}｜单词 ${c.words}｜记忆卡片 ${c.items}｜易混词 ${c.confusable_pairs}｜技能 ${c.skills}`
@@ -178,6 +190,7 @@ export default function DataTransferModal({ onClose }: DataTransferModalProps) {
     try {
       const res = await pullCloudDataToLocal(code);
       const c = res.imported;
+      await refreshUserAfterImport();
       window.dispatchEvent(new CustomEvent("app-data-changed"));
       window.alert(
         `已从云端同步：\n分组 ${c.groups}｜单词 ${c.words}｜记忆卡片 ${c.items}｜易混词 ${c.confusable_pairs}｜技能 ${c.skills}`

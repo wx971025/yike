@@ -8,6 +8,7 @@ import {
 import { authApi } from "../api";
 import { clearToken, getToken, setToken } from "../api/client";
 import type { User } from "../types";
+import { applyReviewSettingsFromUser } from "../utils/reviewSettingsSync";
 
 interface AuthState {
   user: User | null;
@@ -32,7 +33,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     authApi
       .me()
-      .then((res) => setUser(res.data))
+      .then((res) => {
+        setUser(res.data);
+        applyReviewSettingsFromUser(res.data);
+      })
       .catch(() => clearToken())
       .finally(() => setLoading(false));
   }, []);
@@ -42,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(res.data.access_token);
     const me = await authApi.me();
     setUser(me.data);
+    applyReviewSettingsFromUser(me.data);
   };
 
   const register = async (u: string, p: string) => {
@@ -49,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(res.data.access_token);
     const me = await authApi.me();
     setUser(me.data);
+    applyReviewSettingsFromUser(me.data);
   };
 
   const logout = () => {
@@ -58,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateUser = (next: User) => {
     setUser(next);
+    applyReviewSettingsFromUser(next);
   };
 
   return (

@@ -1,6 +1,7 @@
 import api, { getToken } from "../api/client";
 import { dataApi, type ImportResult } from "../api";
 import { isDesktopApp } from "./onboarding";
+import { syncReviewSettingsNow } from "./reviewSettingsSync";
 
 const SYNC_CODE_STORAGE_KEY = "yike_sync_code";
 
@@ -112,6 +113,7 @@ export async function exportUserData(exportDir?: string): Promise<{
   path?: string;
   dir?: string;
 }> {
+  await syncReviewSettingsNow();
   if (isDesktopApp()) {
     if (!getToken()) {
       throw new Error("尚未登录，请重启应用后再试");
@@ -159,6 +161,7 @@ export async function pushLocalDataToCloud(syncCode: string): Promise<void> {
     throw new Error("请输入同步码");
   }
   storeSyncCode(code);
+  await syncReviewSettingsNow();
   await api.post("/desktop/data/sync/push", { sync_code: code });
 }
 

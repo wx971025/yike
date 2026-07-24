@@ -7,6 +7,7 @@ import {
   stopWordPronunciation,
 } from "../utils/wordPronunciation";
 import { warmUpKeyboardSounds } from "../utils/wordReviewSounds";
+import { shouldIgnoreGlobalShortcut } from "../utils/keyboardShortcuts";
 import { CardKindBadge } from "./CardKindBadge";
 import ConfusableDiffAnalysisPanel, {
   isValidDiffAnalysis,
@@ -338,6 +339,7 @@ export default function ConfusablePairReviewCard({
   useEffect(() => {
     if (isTransitioning) return;
     const onKeyDown = (e: KeyboardEvent) => {
+      if (shouldIgnoreGlobalShortcut(e)) return;
       if (!isConfirmKey(e.key) || e.repeat) return;
       e.preventDefault();
       handleComplete();
@@ -351,6 +353,7 @@ export default function ConfusablePairReviewCard({
 
   return (
     <div
+      data-review-shortcut-root
       className={`flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-2xl ${
         pair.overdue_days > 0
           ? "ring-1 ring-red-200/80 dark:ring-red-900/50"

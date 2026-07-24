@@ -23,6 +23,10 @@ class User(Base):
         String(36), unique=True, index=True, nullable=True
     )
     word_review_daily_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    word_review_order_mode: Mapped[str] = mapped_column(
+        String(16), default="shuffle", nullable=False
+    )
+    review_ui_prefs: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     ai_configs: Mapped[list["UserAiConfig"]] = relationship(
@@ -222,4 +226,5 @@ class WordReviewDailyBatch(Base):
     track: Mapped[str] = mapped_column(String(16), nullable=False)
     group_filter_key: Mapped[str] = mapped_column(String(255), default="all", nullable=False)
     word_ids: Mapped[str] = mapped_column(Text, nullable=False)
+    shuffle_seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -1,5 +1,7 @@
 import uuid
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -63,6 +65,14 @@ def update_profile(
         current_user.avatar = data["avatar"].strip()
     if "word_review_daily_cap" in data:
         current_user.word_review_daily_cap = data["word_review_daily_cap"]
+    if "word_review_order_mode" in data and data["word_review_order_mode"] is not None:
+        current_user.word_review_order_mode = data["word_review_order_mode"]
+    if "review_ui_prefs" in data:
+        prefs = data["review_ui_prefs"]
+        if prefs is None:
+            current_user.review_ui_prefs = None
+        elif isinstance(prefs, dict):
+            current_user.review_ui_prefs = json.dumps(prefs, ensure_ascii=False)
     db.commit()
     db.refresh(current_user)
     return current_user
