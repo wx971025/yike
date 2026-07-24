@@ -340,6 +340,11 @@ class ReviewWordOut(WordOut):
     overdue_days: int
 
 
+class ReviewWordsTodayOut(BaseModel):
+    words: list[ReviewWordOut]
+    batch_total: int | None = None
+
+
 class ConfusablePairOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

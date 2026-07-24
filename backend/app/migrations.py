@@ -900,3 +900,44 @@ def migrate_word_review_daily_cap_v1() -> None:
                 "('word_review_daily_cap_v1', '1')"
             )
         )
+
+
+def migrate_word_review_daily_batch_v1() -> None:
+    """每日单词复习批次：上限启用时锁定当日词表，刷新不变。"""
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text(
+                "SELECT value FROM schema_meta WHERE key = 'word_review_daily_batch_v1'"
+            )
+        ).fetchone()
+        if done:
+            return
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS word_review_daily_batches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    batch_date DATE NOT NULL,
+                    track VARCHAR(16) NOT NULL,
+                    group_filter_key VARCHAR(255) NOT NULL DEFAULT 'all',
+                    word_ids TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, batch_date, track, group_filter_key)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_word_review_daily_batches_user_date "
+                "ON word_review_daily_batches(user_id, batch_date)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES "
+                "('word_review_daily_batch_v1', '1')"
+            )
+        )

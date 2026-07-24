@@ -209,3 +209,17 @@ class Skill(Base):
     )
 
     user: Mapped["User"] = relationship(back_populates="skills")
+
+
+class WordReviewDailyBatch(Base):
+    __tablename__ = "word_review_daily_batches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    batch_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    track: Mapped[str] = mapped_column(String(16), nullable=False)
+    group_filter_key: Mapped[str] = mapped_column(String(255), default="all", nullable=False)
+    word_ids: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

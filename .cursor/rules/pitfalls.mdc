@@ -210,3 +210,29 @@ alwaysApply: true
 
 - **需求**：每日复习单词过多时可设上限，最小 10，无最大值；默认不限。
 - **解决路线**：`users.word_review_daily_cap`（NULL=不限）；`GET /reviews/today/words` 按逾期排序后截断；拼写/认知轨各自独立计数；设置入口在「今日复习 → 单词 → 复习设置」。
+
+### 2026-07-24 · 复习进度突然回到起点（如 50/50）
+
+- **原因**：每答完一词触发 `app-data-changed` 全量重拉待复习列表；`mergeWordReviewQueue` 在 `kept` 为空时会 `resetSession`（清空 history、重置 session total），或把已在本地完成的词当作 additions 塞回队列，进度公式 `total - queueLen + 1` 回到 1。
+- **解决路线**：完成/跳过仅 `loadCompleted()` 不再全量刷新；会话内 `sessionDoneIds` 禁止已做题 re-enqueue；merge 在 `prev` 非空时不 reset；进度改为 `wordHistory.length + 1` 与 `max(sessionTotal, history + queue)`。
+
+### 2026-07-24 · 部署后无法登录（后端 ImportError 崩溃）
+
+- **原因**：`word_daily_batch.py` 误从 `memory_schedule` 导入 `resolve_memory_mode`，该函数实际在 `review.py`；后端启动失败，所有 API（含登录）不可用。
+- **解决路线**：改为 `from ..services.review import get_due_date, resolve_memory_mode` 并重新 `./deploy.sh backend`。
+
+- **原因**：`GET /reviews/today/words` 每次从当前待复习池截前 N 个；答完若干后刷新会从剩余池再取 N 个。前端乱序用 `Math.random()` 无种子。
+- **解决路线**：`word_review_daily_batches` 锁定当日批次；API 返回 `{ words, batch_total }`；前端 `orderReviewWords` 用确定性种子；乱序/顺序 preference 存 localStorage。
+
+### 2026-07-23 · 调高每日复习上限后队列仍只有 10 个
+- **解决路线**：`mergeWordReviewQueue` 在保留已排队单词的同时 append 新增 id；并更新 session total ref。
+
+### 2026-07-24 · 答对后进度条不前进
+
+- **原因**：防误触修复把 450ms 锁定加在 `advanceAfterCorrect` 上，回车确认答对后第二次回车推进也被拦截；进度条按「当前词序号」计算，答对后未点「下一个」前数字不变，像没动。
+- **解决路线**：拼写答对后进度条即时 +1 显示（`displayProgressStep`）；锁定仅保留在鼠标点击「下一个/熟知」等按钮，键盘回车可正常推进；完成复习改用函数式 `setQueue` 更新队列。
+
+### 2026-07-24 · 显示答案/释义后立刻跳到下一词
+
+- **原因**：①查看拼写答案会 `resetStage` 并触发 `app-data-changed`，队列被后台刷新打乱；②显示释义或答对后按钮瞬间替换（「显示释义」→「熟知」、「确认」→「下一个」），同一次点击/回车会误触下一词。
+- **解决路线**：peek 重置仅本地 patch 队列，不再 dispatch `app-data-changed`；WordReviewCard 在显示释义/答对后 450ms 内锁定鼠标点击「下一个/熟知」等按钮（键盘回车不受限）。

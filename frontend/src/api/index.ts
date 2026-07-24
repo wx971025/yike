@@ -8,7 +8,7 @@ import type {
   Item,
   ReviewConfusablePair,
   ReviewItem,
-  ReviewWord,
+  ReviewWordsTodayResponse,
   ReviewedTodayResponse,
   Skill,
   SkillCatalog,
@@ -248,7 +248,7 @@ export const reviewApi = {
       params: groupFilterParams(groupIds),
     }),
   todayWords: (groupIds?: GroupFilterSelection, track: WordReviewTrack = "spell") =>
-    api.get<ReviewWord[]>("/reviews/today/words", {
+    api.get<ReviewWordsTodayResponse>("/reviews/today/words", {
       params: { ...groupFilterParams(groupIds), track },
     }),
   todayConfusablePairs: () =>

@@ -8,24 +8,62 @@ import PageGroupFilter from "../components/PageGroupFilter";
 import WordReviewCard from "../components/WordReviewCard";
 import WordReviewSettingsMenu from "../components/WordReviewSettingsMenu";
 import { CurveIcon, ChevronLeftIcon, IconButton } from "../components/ItemIcons";
+import { useAuth } from "../context/AuthContext";
 import { useGroups } from "../context/GroupContext";
 import { type Item, type ReviewConfusablePair, type ReviewItem, type ReviewWord, type ReviewedTodayItem } from "../types";
 import { type WordReviewTrack, wordTrackLabel, wordTrackState } from "../utils/wordReviewTrack";
+import {
+  buildWordOrderSeedKey,
+  groupFilterSeedKey,
+  loadWordOrderMode,
+  orderReviewWords,
+  saveWordOrderMode,
+  type WordOrderMode,
+} from "../utils/wordReviewOrder";
 import { sortByCreatedAt } from "../utils/sort";
 import { todayStr, getNextReviewDate } from "../utils/reviewSchedule";
 
-type WordOrderMode = "shuffle" | "created_at";
-
-function orderWords(words: ReviewWord[], mode: WordOrderMode): ReviewWord[] {
-  if (mode === "created_at") {
-    return sortByCreatedAt(words, "asc");
+function mergeWordReviewQueue(
+  prev: ReviewWord[],
+  words: ReviewWord[],
+  mode: WordOrderMode,
+  orderSeedKey: string,
+  sessionDoneIds: ReadonlySet<number>,
+  resetSession: (ordered: ReviewWord[], batchTotal?: number | null) => void,
+  bumpSessionTotal: (total: number) => void,
+  batchTotal: number | null
+): ReviewWord[] {
+  const available = new Map(words.map((w) => [w.id, w]));
+  const kept = prev
+    .filter((w) => available.has(w.id))
+    .map((w) => available.get(w.id)!);
+  if (kept.length === 0) {
+    if (words.length === 0) {
+      return prev;
+    }
+    if (prev.length > 0) {
+      return prev.map((w) => available.get(w.id) ?? w);
+    }
+    const ordered = orderReviewWords(
+      words.filter((w) => !sessionDoneIds.has(w.id)),
+      mode,
+      orderSeedKey
+    );
+    resetSession(ordered, batchTotal);
+    return ordered;
   }
-  const shuffled = [...words];
-  for (let i = shuffled.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  const keptIds = new Set(kept.map((w) => w.id));
+  const additions = orderReviewWords(
+    words.filter((w) => !keptIds.has(w.id) && !sessionDoneIds.has(w.id)),
+    mode,
+    orderSeedKey
+  );
+  if (additions.length === 0) {
+    return kept;
   }
-  return shuffled;
+  const merged = [...kept, ...additions];
+  bumpSessionTotal(merged.length);
+  return merged;
 }
 
 function orderConfusablePairs(
@@ -70,6 +108,7 @@ function DueEmptyState({ kind }: { kind: "item" | "word" | "confusable" }) {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const { totalStagesForGroupId, memoryModeForGroupId } = useGroups();
   const [dueItemGroupFilterIds, setDueItemGroupFilterIds] = useState<Set<number>>(
     new Set()
@@ -89,7 +128,7 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<"due" | "stats">("due");
   const [dueSubTab, setDueSubTab] = useState<"item" | "word" | "confusable">("item");
   const [wordTrackTab, setWordTrackTab] = useState<WordReviewTrack>("spell");
-  const [wordOrderMode, setWordOrderMode] = useState<WordOrderMode>("shuffle");
+  const [wordOrderMode, setWordOrderMode] = useState<WordOrderMode>(loadWordOrderMode);
   const [spellQueue, setSpellQueue] = useState<ReviewWord[]>([]);
   const [recognizeQueue, setRecognizeQueue] = useState<ReviewWord[]>([]);
   const [wordHistory, setWordHistory] = useState<ReviewWord[]>([]);
@@ -100,6 +139,22 @@ export default function Dashboard() {
   const spellSessionTotalRef = useRef(0);
   const recognizeSessionTotalRef = useRef(0);
   const confusableSessionTotalRef = useRef(0);
+  const spellSessionDoneIdsRef = useRef(new Set<number>());
+  const recognizeSessionDoneIdsRef = useRef(new Set<number>());
+  const spellBatchTotalRef = useRef<number | null>(null);
+  const recognizeBatchTotalRef = useRef<number | null>(null);
+
+  const dueWordGroupFilterKey = groupFilterSeedKey(dueWordGroupFilterIds);
+  const spellOrderSeedKey = buildWordOrderSeedKey({
+    userId: user?.id,
+    track: "spell",
+    groupFilterKey: dueWordGroupFilterKey,
+  });
+  const recognizeOrderSeedKey = buildWordOrderSeedKey({
+    userId: user?.id,
+    track: "recognize",
+    groupFilterKey: dueWordGroupFilterKey,
+  });
 
   const loadDueItems = useCallback(async () => {
     const res = await reviewApi.today(dueItemGroupFilterIds);
@@ -111,8 +166,10 @@ export default function Dashboard() {
       reviewApi.todayWords(dueWordGroupFilterIds, "spell"),
       reviewApi.todayWords(dueWordGroupFilterIds, "recognize"),
     ]);
-    setSpellWords(spellRes.data);
-    setRecognizeWords(recognizeRes.data);
+    setSpellWords(spellRes.data.words);
+    setRecognizeWords(recognizeRes.data.words);
+    spellBatchTotalRef.current = spellRes.data.batch_total;
+    recognizeBatchTotalRef.current = recognizeRes.data.batch_total;
   }, [dueWordGroupFilterIds]);
 
   const loadDueConfusablePairs = useCallback(async () => {
@@ -157,21 +214,31 @@ export default function Dashboard() {
     return () => window.removeEventListener("app-data-changed", handler);
   }, [load]);
 
-  const resetSpellSession = useCallback((ordered: ReviewWord[]) => {
-    setSpellQueue(ordered);
-    setWordHistory([]);
-    spellSessionTotalRef.current = ordered.length;
-  }, []);
+  const resetSpellSession = useCallback(
+    (ordered: ReviewWord[], batchTotal?: number | null) => {
+      setSpellQueue(ordered);
+      setWordHistory([]);
+      spellSessionTotalRef.current = batchTotal ?? ordered.length;
+    },
+    []
+  );
 
-  const resetRecognizeSession = useCallback((ordered: ReviewWord[]) => {
-    setRecognizeQueue(ordered);
-    setWordHistory([]);
-    recognizeSessionTotalRef.current = ordered.length;
-  }, []);
+  const resetRecognizeSession = useCallback(
+    (ordered: ReviewWord[], batchTotal?: number | null) => {
+      setRecognizeQueue(ordered);
+      setWordHistory([]);
+      recognizeSessionTotalRef.current = batchTotal ?? ordered.length;
+    },
+    []
+  );
 
   useEffect(() => {
     spellSessionTotalRef.current = 0;
     recognizeSessionTotalRef.current = 0;
+    spellSessionDoneIdsRef.current.clear();
+    recognizeSessionDoneIdsRef.current.clear();
+    spellBatchTotalRef.current = null;
+    recognizeBatchTotalRef.current = null;
     resetSpellSession([]);
     resetRecognizeSession([]);
   }, [dueWordGroupFilterIds, resetSpellSession, resetRecognizeSession]);
@@ -203,37 +270,59 @@ export default function Dashboard() {
   }, [confusablePairs.length]);
 
   useEffect(() => {
-    setSpellQueue((prev) => {
-      const available = new Map(spellWords.map((w) => [w.id, w]));
-      const kept = prev
-        .filter((w) => available.has(w.id))
-        .map((w) => available.get(w.id)!);
-      if (kept.length > 0) return kept;
-      const ordered = orderWords(spellWords, wordOrderMode);
-      resetSpellSession(ordered);
-      return ordered;
-    });
-  }, [spellWords, resetSpellSession, wordOrderMode]);
+    setSpellQueue((prev) =>
+      mergeWordReviewQueue(
+        prev,
+        spellWords,
+        wordOrderMode,
+        spellOrderSeedKey,
+        spellSessionDoneIdsRef.current,
+        resetSpellSession,
+        (total) => {
+          spellSessionTotalRef.current = Math.max(
+            spellSessionTotalRef.current,
+            total
+          );
+        },
+        spellBatchTotalRef.current
+      )
+    );
+  }, [spellWords, resetSpellSession, wordOrderMode, spellOrderSeedKey]);
 
   useEffect(() => {
-    setRecognizeQueue((prev) => {
-      const available = new Map(recognizeWords.map((w) => [w.id, w]));
-      const kept = prev
-        .filter((w) => available.has(w.id))
-        .map((w) => available.get(w.id)!);
-      if (kept.length > 0) return kept;
-      const ordered = orderWords(recognizeWords, wordOrderMode);
-      resetRecognizeSession(ordered);
-      return ordered;
-    });
-  }, [recognizeWords, resetRecognizeSession, wordOrderMode]);
+    setRecognizeQueue((prev) =>
+      mergeWordReviewQueue(
+        prev,
+        recognizeWords,
+        wordOrderMode,
+        recognizeOrderSeedKey,
+        recognizeSessionDoneIdsRef.current,
+        resetRecognizeSession,
+        (total) => {
+          recognizeSessionTotalRef.current = Math.max(
+            recognizeSessionTotalRef.current,
+            total
+          );
+        },
+        recognizeBatchTotalRef.current
+      )
+    );
+  }, [recognizeWords, resetRecognizeSession, wordOrderMode, recognizeOrderSeedKey]);
 
   useEffect(() => {
-    resetSpellSession(orderWords(spellWords, wordOrderMode));
+    spellSessionDoneIdsRef.current.clear();
+    resetSpellSession(
+      orderReviewWords(spellWords, wordOrderMode, spellOrderSeedKey),
+      spellBatchTotalRef.current
+    );
   }, [wordOrderMode]);
 
   useEffect(() => {
-    resetRecognizeSession(orderWords(recognizeWords, wordOrderMode));
+    recognizeSessionDoneIdsRef.current.clear();
+    resetRecognizeSession(
+      orderReviewWords(recognizeWords, wordOrderMode, recognizeOrderSeedKey),
+      recognizeBatchTotalRef.current
+    );
   }, [wordOrderMode]);
 
   useEffect(() => {
@@ -268,13 +357,24 @@ export default function Dashboard() {
   const activeWordQueue = wordTrackTab === "spell" ? spellQueue : recognizeQueue;
   const activeSessionTotal =
     wordTrackTab === "spell"
-      ? Math.max(spellSessionTotalRef.current, spellQueue.length)
-      : Math.max(recognizeSessionTotalRef.current, recognizeQueue.length);
-  const wordProgressTotal = activeSessionTotal;
+      ? spellSessionTotalRef.current
+      : recognizeSessionTotalRef.current;
+  const activeBatchTotal =
+    wordTrackTab === "spell"
+      ? spellBatchTotalRef.current
+      : recognizeBatchTotalRef.current;
+  const wordProgressTotal =
+    activeBatchTotal ??
+    Math.max(activeSessionTotal, wordHistory.length + activeWordQueue.length);
   const wordProgressStep =
-    activeSessionTotal -
-    activeWordQueue.length +
-    (activeWordQueue.length > 0 ? 1 : 0);
+    activeBatchTotal != null
+      ? Math.max(
+          0,
+          activeBatchTotal -
+            activeWordQueue.length +
+            (activeWordQueue.length > 0 ? 1 : 0)
+        )
+      : wordHistory.length + (activeWordQueue.length > 0 ? 1 : 0);
   const activeTrackReviewPending =
     wordTrackTab === "spell" ? spellCount > 0 : recognizeCount > 0;
 
@@ -353,24 +453,41 @@ export default function Dashboard() {
   };
 
   const handleWordSpellComplete = async (id: number, wasPeeked: boolean) => {
-    const current = spellQueue[0];
-    if (!current || current.id !== id) return;
-    pushWordHistory(current);
+    const reviewed =
+      spellQueue[0]?.id === id
+        ? spellQueue[0]
+        : spellWords.find((w) => w.id === id);
+    if (!reviewed) return;
+
+    setSpellQueue((queue) =>
+      queue[0]?.id === id ? queue.slice(1) : queue
+    );
+    pushWordHistory(reviewed);
+    setSpellWords((prev) => prev.filter((w) => w.id !== id));
+    spellSessionDoneIdsRef.current.add(id);
     if (!wasPeeked) {
       await wordApi.review(id, "spell");
-      if (current) setReviewToast(`${current.word} 拼写已复习`);
-      window.dispatchEvent(new CustomEvent("app-data-changed"));
+      setReviewToast(`${reviewed.word} 拼写已复习`);
+      void loadCompleted();
     }
-    removeWordFromTrack(id, "spell");
   };
 
   const handleWordRecognizeKnown = async (id: number) => {
-    const current = recognizeQueue[0];
-    if (current?.id === id) pushWordHistory(current);
+    const reviewed =
+      recognizeQueue[0]?.id === id
+        ? recognizeQueue[0]
+        : recognizeWords.find((w) => w.id === id);
+    if (!reviewed) return;
+
+    setRecognizeQueue((queue) =>
+      queue[0]?.id === id ? queue.slice(1) : queue
+    );
+    pushWordHistory(reviewed);
+    setRecognizeWords((prev) => prev.filter((w) => w.id !== id));
+    recognizeSessionDoneIdsRef.current.add(id);
     await wordApi.review(id, "recognize");
-    if (current) setReviewToast(`${current.word} 认知已复习`);
-    removeWordFromTrack(id, "recognize");
-    window.dispatchEvent(new CustomEvent("app-data-changed"));
+    setReviewToast(`${reviewed.word} 认知已复习`);
+    void loadCompleted();
   };
 
   const handleWordRecognizeForgot = (id: number) => {
@@ -389,8 +506,13 @@ export default function Dashboard() {
     const current = activeWordQueue[0];
     if (current?.id === id) pushWordHistory(current);
     await wordApi.skip(id, wordTrackTab);
+    if (wordTrackTab === "spell") {
+      spellSessionDoneIdsRef.current.add(id);
+    } else {
+      recognizeSessionDoneIdsRef.current.add(id);
+    }
     removeWordFromTrack(id, wordTrackTab);
-    window.dispatchEvent(new CustomEvent("app-data-changed"));
+    void loadCompleted();
   };
 
   const handleWordUpdated = useCallback((updated: ReviewWord) => {
@@ -425,7 +547,6 @@ export default function Dashboard() {
             : word;
         setSpellWords((prev) => prev.map(patchWord));
         setSpellQueue((prev) => prev.map(patchWord));
-        window.dispatchEvent(new CustomEvent("app-data-changed"));
       } catch {
         // 重置失败不阻断当前复习流程
       }
@@ -635,9 +756,11 @@ export default function Dashboard() {
                   showWordOrder={dueSubTab === "confusable"}
                   wordOrderMode={wordOrderMode}
                   onToggleWordOrder={() =>
-                    setWordOrderMode((mode) =>
-                      mode === "shuffle" ? "created_at" : "shuffle"
-                    )
+                    setWordOrderMode((mode) => {
+                      const next = mode === "shuffle" ? "created_at" : "shuffle";
+                      saveWordOrderMode(next);
+                      return next;
+                    })
                   }
                 />
               ) : null}
@@ -778,9 +901,11 @@ export default function Dashboard() {
               progressTotal={wordProgressTotal}
               wordOrderMode={wordOrderMode}
               onToggleWordOrder={() =>
-                setWordOrderMode((mode) =>
-                  mode === "shuffle" ? "created_at" : "shuffle"
-                )
+                setWordOrderMode((mode) => {
+                  const next = mode === "shuffle" ? "created_at" : "shuffle";
+                  saveWordOrderMode(next);
+                  return next;
+                })
               }
               onSpellComplete={(id, wasPeeked) => void handleWordSpellComplete(id, wasPeeked)}
               onRecognizeKnown={(id) => void handleWordRecognizeKnown(id)}

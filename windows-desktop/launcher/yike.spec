@@ -84,6 +84,7 @@ hiddenimports = [
     "app.services.group_color",
     "app.services.review",
     "app.services.word_review_track",
+    "app.services.word_daily_batch",
     "passlib.handlers.bcrypt",
     "bcrypt",
     "uvicorn.logging",

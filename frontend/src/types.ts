@@ -102,6 +102,11 @@ export interface ReviewWord extends Word {
   overdue_days: number;
 }
 
+export interface ReviewWordsTodayResponse {
+  words: ReviewWord[];
+  batch_total: number | null;
+}
+
 export interface ConfusableDiffAnalysis {
   sentence_a: string;
   sentence_a_zh: string;

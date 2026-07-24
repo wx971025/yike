@@ -111,26 +111,98 @@ function UnderlineInput({
   );
 }
 
-function ShortcutHint({ keys, label }: { keys: string; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5">
+function ShortcutHint({
+  keys,
+  label,
+  onClick,
+  disabled,
+}: {
+  keys: string;
+  label: string;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  const content = (
+    <>
       <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
         {keys}
       </kbd>
       <span>{label}</span>
-    </span>
+    </>
+  );
+
+  if (!onClick) {
+    return <span className="inline-flex items-center gap-1.5">{content}</span>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={`点击：${label}`}
+      className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 transition hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+    >
+      {content}
+    </button>
   );
 }
 
-function ShortcutHints() {
+interface ShortcutHintsProps {
+  onRevealAnswer?: () => void;
+  revealAnswerDisabled?: boolean;
+  onPlayPronunciation?: () => void;
+  playPronunciationDisabled?: boolean;
+  onToggleKeyboardSound?: () => void;
+  onToggleWordOrder?: () => void;
+  toggleWordOrderDisabled?: boolean;
+  onGenerateExample?: () => void;
+  generateExampleDisabled?: boolean;
+}
+
+function ShortcutHints({
+  onRevealAnswer,
+  revealAnswerDisabled,
+  onPlayPronunciation,
+  playPronunciationDisabled,
+  onToggleKeyboardSound,
+  onToggleWordOrder,
+  toggleWordOrderDisabled,
+  onGenerateExample,
+  generateExampleDisabled,
+}: ShortcutHintsProps) {
   return (
     <div className="mt-auto shrink-0 px-4 pb-2 pt-1 text-center">
       <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-slate-400 dark:text-slate-500">
-        <ShortcutHint keys="Ctrl + ;" label="查看答案" />
-        <ShortcutHint keys="Ctrl + P" label="播放读音" />
-        <ShortcutHint keys="Ctrl + K" label="开关键盘音" />
-        <ShortcutHint keys="Ctrl + O" label="乱序顺序切换" />
-        <ShortcutHint keys="Ctrl + E" label="生成例句" />
+        <ShortcutHint
+          keys="Ctrl + ;"
+          label="查看答案"
+          onClick={onRevealAnswer}
+          disabled={revealAnswerDisabled}
+        />
+        <ShortcutHint
+          keys="Ctrl + '"
+          label="播放读音"
+          onClick={onPlayPronunciation}
+          disabled={playPronunciationDisabled}
+        />
+        <ShortcutHint
+          keys="Ctrl + K"
+          label="开关键盘音"
+          onClick={onToggleKeyboardSound}
+        />
+        <ShortcutHint
+          keys="Ctrl + O"
+          label="乱序顺序切换"
+          onClick={onToggleWordOrder}
+          disabled={toggleWordOrderDisabled}
+        />
+        <ShortcutHint
+          keys="Ctrl + E"
+          label="生成例句"
+          onClick={onGenerateExample}
+          disabled={generateExampleDisabled}
+        />
       </div>
     </div>
   );
@@ -188,6 +260,16 @@ export default function WordReviewCard({
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const peekResetDoneRef = useRef(false);
   const confusablePromptedRef = useRef<Set<string>>(new Set());
+  const advanceLockUntilRef = useRef(0);
+
+  const lockAdvanceBriefly = useCallback(() => {
+    advanceLockUntilRef.current = Date.now() + 450;
+  }, []);
+
+  const isAdvanceLocked = useCallback(
+    () => Date.now() < advanceLockUntilRef.current,
+    []
+  );
 
   const resetCardState = () => {
     setMeaningRevealed(false);
@@ -306,10 +388,20 @@ export default function WordReviewCard({
     if (peeked) setSpellWasPeeked(true);
   }, [peeked]);
 
+  useEffect(() => {
+    if (isCorrect || meaningRevealed) {
+      lockAdvanceBriefly();
+    }
+  }, [isCorrect, meaningRevealed, lockAdvanceBriefly]);
+
   const phaseLabel = mode === "spell" ? "拼写" : "识义";
+  const displayProgressStep = Math.min(
+    progressTotal,
+    progressStep + (mode === "spell" && isCorrect ? 1 : 0)
+  );
   const progressPercent =
     progressTotal > 0
-      ? Math.min(100, (progressStep / progressTotal) * 100)
+      ? Math.min(100, (displayProgressStep / progressTotal) * 100)
       : 0;
 
   const reviewMeta = useMemo(() => {
@@ -399,6 +491,7 @@ export default function WordReviewCard({
   );
 
   const handleRevealMeaning = useCallback(() => {
+    lockAdvanceBriefly();
     setMeaningRevealed(true);
     if (autoPronunciationEnabled) {
       setIsPlayingPronunciation(true);
@@ -413,13 +506,15 @@ export default function WordReviewCard({
     autoPronunciationRepeat,
     pronunciationAccent,
     word.word,
+    lockAdvanceBriefly,
   ]);
 
   const handleSkip = useCallback(() => {
+    if (isAdvanceLocked()) return;
     stopWordPronunciation();
     setIsPlayingPronunciation(false);
     transitionToNext(() => onSkip(word.id));
-  }, [word.id, onSkip]);
+  }, [word.id, onSkip, isAdvanceLocked]);
 
   const activateFocusedRecognizeAction = useCallback(() => {
     const active = document.activeElement;
@@ -539,7 +634,7 @@ export default function WordReviewCard({
         return;
       }
 
-      if (key === "p") {
+      if (e.key === "'" || e.code === "Quote") {
         e.preventDefault();
         void handlePlayPronunciation();
         return;
@@ -622,6 +717,7 @@ export default function WordReviewCard({
     if (answer.toLowerCase() === word.word.trim().toLowerCase()) {
       setIsCorrect(true);
       setHasError(false);
+      lockAdvanceBriefly();
       if (autoPronunciationEnabled) {
         setIsPlayingPronunciation(true);
         void playWordPronunciationRepeated(
@@ -656,6 +752,7 @@ export default function WordReviewCard({
   };
 
   const goNext = () => {
+    if (isAdvanceLocked()) return;
     advanceAfterCorrect("Enter");
   };
 
@@ -686,13 +783,13 @@ export default function WordReviewCard({
             复习进度 · {phaseLabel}
           </span>
           <span className="tabular-nums">
-            {progressStep} / {progressTotal}
+            {displayProgressStep} / {progressTotal}
           </span>
         </div>
         <div
           className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-700/80"
           role="progressbar"
-          aria-valuenow={progressStep}
+          aria-valuenow={displayProgressStep}
           aria-valuemin={0}
           aria-valuemax={progressTotal}
           aria-label="单词复习进度"
@@ -719,7 +816,7 @@ export default function WordReviewCard({
             type="button"
             onClick={() => void handlePlayPronunciation()}
             disabled={isPlayingPronunciation || isTransitioning}
-            title={`播放读音（${pronunciationAccent === "us" ? "美音" : "英音"}）`}
+            title={`播放读音（${pronunciationAccent === "us" ? "美音" : "英音"}，Ctrl + '）`}
             className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
               isPlayingPronunciation
                 ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
@@ -1013,7 +1110,10 @@ export default function WordReviewCard({
                     <button
                       ref={recognizeForgotRef}
                       type="button"
-                      onClick={handleRecognizeForgot}
+                      onClick={() => {
+                        if (isAdvanceLocked()) return;
+                        handleRecognizeForgot();
+                      }}
                       disabled={isTransitioning}
                       className={`min-w-[8rem] rounded-lg bg-amber-500 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-amber-600 disabled:opacity-50 ${recognizeActionButtonClass} focus-visible:ring-amber-300`}
                     >
@@ -1058,7 +1158,30 @@ export default function WordReviewCard({
       </form>
       </div>
 
-      <ShortcutHints />
+      <ShortcutHints
+        onRevealAnswer={() => {
+          if (mode === "spell" && !isCorrect && !isTransitioning) {
+            setRevealedAnswer(true);
+          }
+        }}
+        revealAnswerDisabled={
+          mode !== "spell" || isCorrect || isTransitioning
+        }
+        onPlayPronunciation={() => void handlePlayPronunciation()}
+        playPronunciationDisabled={isPlayingPronunciation || isTransitioning}
+        onToggleKeyboardSound={() =>
+          setKeyboardSoundEnabled(!keyboardSoundEnabled)
+        }
+        onToggleWordOrder={onToggleWordOrder}
+        toggleWordOrderDisabled={!onToggleWordOrder}
+        onGenerateExample={() => void handleGenerateExample()}
+        generateExampleDisabled={
+          mode !== "spell" ||
+          isTransitioning ||
+          exampleCount > 0 ||
+          generatingExample
+        }
+      />
     </div>
   );
 }

@@ -70,6 +70,7 @@ export default function WordReviewSettingsMenu({
 }: WordReviewSettingsMenuProps) {
   const [open, setOpen] = useState(false);
   const [savingCap, setSavingCap] = useState(false);
+  const [capDraft, setCapDraft] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
   const { user, updateUser } = useAuth();
   const dailyCap = user?.word_review_daily_cap ?? null;
@@ -97,6 +98,28 @@ export default function WordReviewSettingsMenu({
       setSavingCap(false);
     }
   };
+
+  const commitCapDraft = () => {
+    if (dailyCap === null) return;
+    const digits = capDraft.replace(/\D/g, "");
+    if (!digits) {
+      setCapDraft(String(dailyCap));
+      return;
+    }
+    const value = Math.max(10, Number.parseInt(digits, 10));
+    setCapDraft(String(value));
+    if (value !== dailyCap) {
+      void saveDailyCap(value);
+    }
+  };
+
+  useEffect(() => {
+    if (dailyCap !== null) {
+      setCapDraft(String(dailyCap));
+    } else {
+      setCapDraft("");
+    }
+  }, [dailyCap]);
 
   useEffect(() => {
     if (!open) return;
@@ -149,9 +172,22 @@ export default function WordReviewSettingsMenu({
                   >
                     −
                   </button>
-                  <span className="min-w-[3rem] px-1 text-center text-xs font-medium tabular-nums text-slate-700 dark:text-slate-200">
-                    {dailyCap}个
-                  </span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={capDraft}
+                    onChange={(e) => setCapDraft(e.target.value.replace(/\D/g, ""))}
+                    onBlur={commitCapDraft}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    disabled={savingCap}
+                    className="w-12 border-0 bg-transparent px-1 py-1 text-center text-xs font-medium tabular-nums text-slate-700 outline-none focus:ring-0 disabled:opacity-50 dark:text-slate-200"
+                    aria-label="每日复习上限"
+                  />
                   <button
                     type="button"
                     onClick={() => void saveDailyCap(dailyCap + 1)}

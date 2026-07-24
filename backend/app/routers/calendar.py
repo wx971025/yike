@@ -16,6 +16,7 @@ from ..schemas import (
     ReviewConfusablePairOut,
     ReviewItemOut,
     ReviewWordOut,
+    ReviewWordsTodayOut,
     ReviewedTodayItem,
     ReviewedTodayOut,
     WordOut,
@@ -25,6 +26,7 @@ from ..services.group_context import group_memory_mode_map
 from ..services.group_filter import apply_group_ids_filter
 from ..services.memory_schedule import normalize_memory_mode
 from ..services.review import get_due_date, is_due, resolve_memory_mode, upcoming_due_dates
+from ..services.word_daily_batch import resolve_today_review_words
 from ..services.word_review_track import (
     WordReviewTrack,
     get_track_value,
@@ -65,7 +67,7 @@ def reviews_today(
     return result
 
 
-@router.get("/reviews/today/words", response_model=list[ReviewWordOut])
+@router.get("/reviews/today/words", response_model=ReviewWordsTodayOut)
 def reviews_today_words(
     group_id: int | None = None,
     group_ids: list[int] | None = Query(None),
@@ -78,30 +80,10 @@ def reviews_today_words(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    today = app_today()
-    mode_map = group_memory_mode_map(db, user.id)
-    query = db.query(Word).filter(Word.user_id == user.id, Word.in_plan.is_(True))
-    query = apply_group_ids_filter(query, Word.group_id, group_id, group_ids)
-
-    result: list[ReviewWordOut] = []
-    for word in query.all():
-        mode = resolve_memory_mode(word.group_id, mode_map)
-        track_status = get_track_value(word, review_track, "status")
-        if track_status != "active":
-            continue
-        if is_word_track_due(word, review_track, today, mode):
-            learned_at = get_track_value(word, review_track, "learned_at")
-            stage_index = get_track_value(word, review_track, "stage_index")
-            due = get_due_date(learned_at, stage_index, mode)
-            data = WordOut.model_validate(word).model_dump()
-            result.append(
-                ReviewWordOut(**data, due_date=due, overdue_days=(today - due).days)
-            )
-    result.sort(key=lambda r: r.overdue_days, reverse=True)
-    cap = user.word_review_daily_cap
-    if cap is not None:
-        result = result[:cap]
-    return result
+    words, batch_total = resolve_today_review_words(
+        user, review_track, group_id, group_ids, db
+    )
+    return ReviewWordsTodayOut(words=words, batch_total=batch_total)
 
 
 @router.get("/reviews/today/confusable-pairs", response_model=list[ReviewConfusablePairOut])

@@ -117,8 +117,8 @@ function LayoutShell() {
       ]);
       setDueCount(
         cards.data.length +
-          spellWords.data.length +
-          recognizeWords.data.length +
+          spellWords.data.words.length +
+          recognizeWords.data.words.length +
           confusable.data.length
       );
     } catch {
