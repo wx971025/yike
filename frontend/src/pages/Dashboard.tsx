@@ -183,7 +183,22 @@ export default function Dashboard() {
     recognizeBatchTotalRef.current = recognizeRes.data.batch_total;
     spellShuffleSeedRef.current = spellRes.data.shuffle_seed;
     recognizeShuffleSeedRef.current = recognizeRes.data.shuffle_seed;
+    spellSessionDoneIdsRef.current = new Set(
+      spellRes.data.completed_word_ids ?? []
+    );
+    recognizeSessionDoneIdsRef.current = new Set(
+      recognizeRes.data.completed_word_ids ?? []
+    );
   }, [dueWordGroupFilterIds]);
+
+  const markWordSessionProgress = useCallback(
+    (wordId: number, track: WordReviewTrack) => {
+      void reviewApi
+        .markWordSessionProgress(wordId, dueWordGroupFilterIds, track)
+        .catch(() => {});
+    },
+    [dueWordGroupFilterIds]
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -393,9 +408,17 @@ export default function Dashboard() {
     wordTrackTab === "spell"
       ? spellBatchTotalRef.current
       : recognizeBatchTotalRef.current;
+  const activeCompletedCount =
+    wordTrackTab === "spell"
+      ? spellSessionDoneIdsRef.current.size
+      : recognizeSessionDoneIdsRef.current.size;
   const wordProgressTotal =
     activeBatchTotal ??
-    Math.max(activeSessionTotal, wordHistory.length + activeWordQueue.length);
+    Math.max(
+      activeSessionTotal,
+      activeCompletedCount,
+      wordHistory.length + activeWordQueue.length
+    );
   const wordProgressStep =
     activeBatchTotal != null
       ? Math.max(
@@ -404,7 +427,7 @@ export default function Dashboard() {
             activeWordQueue.length +
             (activeWordQueue.length > 0 ? 1 : 0)
         )
-      : wordHistory.length + (activeWordQueue.length > 0 ? 1 : 0);
+      : activeCompletedCount + (activeWordQueue.length > 0 ? 1 : 0);
   const activeTrackReviewPending =
     wordTrackTab === "spell" ? spellCount > 0 : recognizeCount > 0;
 
@@ -495,6 +518,7 @@ export default function Dashboard() {
     pushWordHistory(reviewed);
     setSpellWords((prev) => prev.filter((w) => w.id !== id));
     spellSessionDoneIdsRef.current.add(id);
+    markWordSessionProgress(id, "spell");
     if (!wasPeeked) {
       await wordApi.review(id, "spell");
       setReviewToast(`${reviewed.word} 拼写已复习`);
@@ -515,6 +539,7 @@ export default function Dashboard() {
     pushWordHistory(reviewed);
     setRecognizeWords((prev) => prev.filter((w) => w.id !== id));
     recognizeSessionDoneIdsRef.current.add(id);
+    markWordSessionProgress(id, "recognize");
     await wordApi.review(id, "recognize");
     setReviewToast(`${reviewed.word} 认知已复习`);
     void loadCompleted();
@@ -541,6 +566,7 @@ export default function Dashboard() {
     } else {
       recognizeSessionDoneIdsRef.current.add(id);
     }
+    markWordSessionProgress(id, wordTrackTab);
     removeWordFromTrack(id, wordTrackTab);
     void loadCompleted();
   };

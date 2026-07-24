@@ -372,6 +372,14 @@ class ReviewWordsTodayOut(BaseModel):
     words: list[ReviewWordOut]
     batch_total: int | None = None
     shuffle_seed: int | None = None
+    completed_word_ids: list[int] = Field(default_factory=list)
+
+
+class WordSessionProgressIn(BaseModel):
+    word_id: int = Field(ge=1)
+    track: str = "spell"
+    group_id: int | None = None
+    group_ids: list[int] | None = None
 
 
 class ConfusablePairOut(BaseModel):

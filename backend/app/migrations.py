@@ -976,3 +976,51 @@ def migrate_user_review_settings_v1() -> None:
                 "('user_review_settings_v1', '1')"
             )
         )
+
+
+def migrate_word_review_progress_v1() -> None:
+    """当日复习进度（已完成词 id，跨设备同步）。"""
+    with engine.begin() as conn:
+        _ensure_schema_meta(conn)
+        done = conn.execute(
+            text(
+                "SELECT value FROM schema_meta WHERE key = 'word_review_progress_v1'"
+            )
+        ).fetchone()
+        if done:
+            return
+        if "completed_word_ids" not in _column_names(conn, "word_review_daily_batches"):
+            conn.execute(
+                text(
+                    "ALTER TABLE word_review_daily_batches "
+                    "ADD COLUMN completed_word_ids TEXT NOT NULL DEFAULT '[]'"
+                )
+            )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS word_review_session_progress (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    batch_date DATE NOT NULL,
+                    track VARCHAR(16) NOT NULL,
+                    group_filter_key VARCHAR(255) NOT NULL DEFAULT 'all',
+                    completed_word_ids TEXT NOT NULL DEFAULT '[]',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_word_review_session_progress_user_date "
+                "ON word_review_session_progress(user_id, batch_date)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES "
+                "('word_review_progress_v1', '1')"
+            )
+        )

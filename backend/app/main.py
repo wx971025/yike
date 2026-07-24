@@ -30,6 +30,7 @@ from .migrations import (
     migrate_word_review_daily_cap_v1,
     migrate_word_review_daily_batch_v1,
     migrate_user_review_settings_v1,
+    migrate_word_review_progress_v1,
 )
 from .routers import ai, ai_configs, auth, calendar, confusable_pairs, data_transfer, dictionary, groups, items, skills, words
 from .services.dictionary import schedule_dictionary_setup
@@ -61,6 +62,7 @@ migrate_user_sync_code_v1()
 migrate_word_review_daily_cap_v1()
 migrate_word_review_daily_batch_v1()
 migrate_user_review_settings_v1()
+migrate_word_review_progress_v1()
 
 app = FastAPI(title="忆刻 API")
 

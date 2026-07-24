@@ -114,6 +114,7 @@ export interface ReviewWordsTodayResponse {
   words: ReviewWord[];
   batch_total: number | null;
   shuffle_seed: number | null;
+  completed_word_ids: number[];
 }
 
 export interface ConfusableDiffAnalysis {

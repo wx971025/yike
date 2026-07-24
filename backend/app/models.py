@@ -227,4 +227,24 @@ class WordReviewDailyBatch(Base):
     group_filter_key: Mapped[str] = mapped_column(String(255), default="all", nullable=False)
     word_ids: Mapped[str] = mapped_column(Text, nullable=False)
     shuffle_seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completed_word_ids: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class WordReviewSessionProgress(Base):
+    """无每日上限时的当日复习进度（已完成词 id 列表）。"""
+
+    __tablename__ = "word_review_session_progress"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    batch_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    track: Mapped[str] = mapped_column(String(16), nullable=False)
+    group_filter_key: Mapped[str] = mapped_column(String(255), default="all", nullable=False)
+    completed_word_ids: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )

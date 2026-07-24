@@ -253,6 +253,19 @@ export const reviewApi = {
     api.get<ReviewWordsTodayResponse>("/reviews/today/words", {
       params: { ...groupFilterParams(groupIds), track },
     }),
+  markWordSessionProgress: (
+    wordId: number,
+    groupIds?: GroupFilterSelection,
+    track: WordReviewTrack = "spell"
+  ) =>
+    api.post<{ completed_word_ids: number[] }>(
+      "/reviews/today/words/session-progress",
+      {
+        word_id: wordId,
+        track,
+        ...groupFilterParams(groupIds),
+      }
+    ),
   todayConfusablePairs: () =>
     api.get<ReviewConfusablePair[]>("/reviews/today/confusable-pairs"),
   todayCompleted: (groupIds?: GroupFilterSelection) =>

@@ -18,7 +18,16 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import ConfusablePair, Group, Item, Skill, User, Word, WordReviewDailyBatch
+from ..models import (
+    ConfusablePair,
+    Group,
+    Item,
+    Skill,
+    User,
+    Word,
+    WordReviewDailyBatch,
+    WordReviewSessionProgress,
+)
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
@@ -72,6 +81,20 @@ def _serialize_batch(batch: WordReviewDailyBatch) -> dict:
         "group_filter_key": batch.group_filter_key,
         "word_ids": json.loads(batch.word_ids) if batch.word_ids else [],
         "shuffle_seed": batch.shuffle_seed,
+        "completed_word_ids": json.loads(batch.completed_word_ids)
+        if batch.completed_word_ids
+        else [],
+    }
+
+
+def _serialize_session_progress(progress: WordReviewSessionProgress) -> dict:
+    return {
+        "batch_date": progress.batch_date.isoformat(),
+        "track": progress.track,
+        "group_filter_key": progress.group_filter_key,
+        "completed_word_ids": json.loads(progress.completed_word_ids)
+        if progress.completed_word_ids
+        else [],
     }
 
 
@@ -121,6 +144,12 @@ def build_export_payload(user: User, db: Session) -> dict:
             _serialize_batch(x)
             for x in db.query(WordReviewDailyBatch)
             .filter(WordReviewDailyBatch.user_id == user.id)
+            .all()
+        ],
+        "word_review_session_progress": [
+            _serialize_session_progress(x)
+            for x in db.query(WordReviewSessionProgress)
+            .filter(WordReviewSessionProgress.user_id == user.id)
             .all()
         ],
     }
@@ -189,6 +218,9 @@ def import_payload_for_user(
         db.query(WordReviewDailyBatch).filter(
             WordReviewDailyBatch.user_id == user.id
         ).delete(synchronize_session=False)
+        db.query(WordReviewSessionProgress).filter(
+            WordReviewSessionProgress.user_id == user.id
+        ).delete(synchronize_session=False)
         db.flush()
 
     _apply_settings(user, payload.get("settings"))
@@ -230,6 +262,14 @@ def import_payload_for_user(
     for row in data.get("skills", []) or []:
         db.add(_coerce(Skill, row, {"user_id": user.id}))
 
+    def remap_completed_ids(raw_ids: Any) -> list[int]:
+        mapped: list[int] = []
+        for raw_id in raw_ids or []:
+            old_id = _normalize_row_id(raw_id)
+            if old_id is not None and old_id in word_map:
+                mapped.append(word_map[old_id])
+        return mapped
+
     for row in data.get("word_review_daily_batches", []) or []:
         if not isinstance(row, dict):
             continue
@@ -261,6 +301,37 @@ def import_payload_for_user(
                 group_filter_key=str(row.get("group_filter_key") or "all"),
                 word_ids=json.dumps(mapped_ids),
                 shuffle_seed=_normalize_row_id(row.get("shuffle_seed")),
+                completed_word_ids=json.dumps(
+                    remap_completed_ids(row.get("completed_word_ids"))
+                ),
+            )
+        )
+
+    for row in data.get("word_review_session_progress", []) or []:
+        if not isinstance(row, dict):
+            continue
+        mapped_completed = remap_completed_ids(row.get("completed_word_ids"))
+        if not mapped_completed:
+            continue
+        batch_date_raw = row.get("batch_date")
+        try:
+            batch_date = (
+                date.fromisoformat(batch_date_raw)
+                if isinstance(batch_date_raw, str)
+                else batch_date_raw
+            )
+        except (TypeError, ValueError):
+            continue
+        track = str(row.get("track") or "").strip()
+        if track not in ("spell", "recognize"):
+            continue
+        db.add(
+            WordReviewSessionProgress(
+                user_id=user.id,
+                batch_date=batch_date,
+                track=track,
+                group_filter_key=str(row.get("group_filter_key") or "all"),
+                completed_word_ids=json.dumps(mapped_completed),
             )
         )
 
@@ -276,6 +347,9 @@ def import_payload_for_user(
             "skills": len(data.get("skills", []) or []),
             "word_review_daily_batches": len(
                 data.get("word_review_daily_batches", []) or []
+            ),
+            "word_review_session_progress": len(
+                data.get("word_review_session_progress", []) or []
             ),
         },
     }

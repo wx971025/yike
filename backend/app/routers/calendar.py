@@ -20,13 +20,17 @@ from ..schemas import (
     ReviewedTodayItem,
     ReviewedTodayOut,
     WordOut,
+    WordSessionProgressIn,
 )
 from ..dates import app_today
 from ..services.group_context import group_memory_mode_map
 from ..services.group_filter import apply_group_ids_filter
 from ..services.memory_schedule import normalize_memory_mode
 from ..services.review import get_due_date, is_due, resolve_memory_mode, upcoming_due_dates
-from ..services.word_daily_batch import resolve_today_review_words
+from ..services.word_daily_batch import (
+    append_completed_word_id,
+    resolve_today_review_words,
+)
 from ..services.word_review_track import (
     WordReviewTrack,
     get_track_value,
@@ -80,12 +84,45 @@ def reviews_today_words(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    words, batch_total, shuffle_seed = resolve_today_review_words(
+    words, batch_total, shuffle_seed, completed_word_ids = resolve_today_review_words(
         user, review_track, group_id, group_ids, db
     )
     return ReviewWordsTodayOut(
-        words=words, batch_total=batch_total, shuffle_seed=shuffle_seed
+        words=words,
+        batch_total=batch_total,
+        shuffle_seed=shuffle_seed,
+        completed_word_ids=completed_word_ids,
     )
+
+
+@router.post("/reviews/today/words/session-progress")
+def mark_word_session_progress(
+    payload: WordSessionProgressIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        review_track = parse_word_review_track(payload.track)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    word = (
+        db.query(Word)
+        .filter(Word.id == payload.word_id, Word.user_id == user.id)
+        .first()
+    )
+    if not word:
+        raise HTTPException(status_code=404, detail="单词不存在")
+
+    completed = append_completed_word_id(
+        user,
+        review_track,
+        payload.group_id,
+        payload.group_ids,
+        payload.word_id,
+        db,
+    )
+    return {"completed_word_ids": completed}
 
 
 @router.get("/reviews/today/confusable-pairs", response_model=list[ReviewConfusablePairOut])
