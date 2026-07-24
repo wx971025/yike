@@ -18,6 +18,11 @@ alwaysApply: true
 
 ## 记录
 
+### 2026-07-24 · 偷看答案后单词未排到队尾
+
+- **原因**：拼写复习 `wasPeeked` 时 `handleWordSpellComplete` 仍从队列移除并写入 session 进度，未像认知「忘记」一样排到队尾再练；认知「显示释义」后点「认识」同理。
+- **解决路线**：`wasPeeked` / `sawAnswer` 时仅 `pushWordHistory` + 队尾重入，不调 review API、不计 session 进度；Web 已 deploy frontend。
+
 ### 2026-07-24 · 云端同步后复习进度（第几个词）不一致
 
 - **原因**：当日批次 `word_ids` 与乱序种子已同步，但「已完成、待继续」的会话进度只存在前端 `sessionDoneIdsRef`（刷新即丢）；偷看答案未调 review API 的词也不会从批次剔除，pull 后进度回到 1。

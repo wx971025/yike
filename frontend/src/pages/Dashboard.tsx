@@ -512,6 +512,16 @@ export default function Dashboard() {
         : spellWords.find((w) => w.id === id);
     if (!reviewed) return;
 
+    if (wasPeeked) {
+      pushWordHistory(reviewed);
+      setSpellQueue((queue) => {
+        const rest = queue.filter((w) => w.id !== id);
+        return [...rest, reviewed];
+      });
+      setReviewToast(`${reviewed.word} 已排到队尾，稍后再练`);
+      return;
+    }
+
     setSpellQueue((queue) =>
       queue[0]?.id === id ? queue.slice(1) : queue
     );
@@ -519,19 +529,29 @@ export default function Dashboard() {
     setSpellWords((prev) => prev.filter((w) => w.id !== id));
     spellSessionDoneIdsRef.current.add(id);
     markWordSessionProgress(id, "spell");
-    if (!wasPeeked) {
-      await wordApi.review(id, "spell");
-      setReviewToast(`${reviewed.word} 拼写已复习`);
-      void loadCompleted();
-    }
+    await wordApi.review(id, "spell");
+    setReviewToast(`${reviewed.word} 拼写已复习`);
+    void loadCompleted();
   };
 
-  const handleWordRecognizeKnown = async (id: number) => {
+  const handleWordRecognizeKnown = async (id: number, sawAnswer: boolean) => {
     const reviewed =
       recognizeQueue[0]?.id === id
         ? recognizeQueue[0]
         : recognizeWords.find((w) => w.id === id);
     if (!reviewed) return;
+
+    if (sawAnswer) {
+      pushWordHistory(reviewed);
+      setRecognizeQueue((prev) => {
+        if (prev.length <= 1) return prev;
+        const [first, ...rest] = prev;
+        if (first.id !== id) return prev;
+        return [...rest, first];
+      });
+      setReviewToast(`${reviewed.word} 已排到队尾，稍后再练`);
+      return;
+    }
 
     setRecognizeQueue((queue) =>
       queue[0]?.id === id ? queue.slice(1) : queue
@@ -966,7 +986,9 @@ export default function Dashboard() {
                 })
               }
               onSpellComplete={(id, wasPeeked) => void handleWordSpellComplete(id, wasPeeked)}
-              onRecognizeKnown={(id) => void handleWordRecognizeKnown(id)}
+              onRecognizeKnown={(id, sawAnswer) =>
+                void handleWordRecognizeKnown(id, sawAnswer)
+              }
               onRecognizeForgot={handleWordRecognizeForgot}
               onSkip={(id) => void handleWordSkip(id)}
               onPeekAnswer={handleWordPeekReset}
