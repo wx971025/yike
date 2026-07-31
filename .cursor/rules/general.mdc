@@ -6,6 +6,17 @@ alwaysApply: true
 # 项目描述
 这是一个艾宾浩斯法提示器
 
+# specs文件夹(规范文档)说明
+项目的规范文档在这个文件夹下, 项目的需求规范/架构设计/任务拆解/接口契约/架构决策记录(adrs)均在这个文件夹下.
+
+- proposal.md: 项目的需求规范
+- design.md: 架构设计
+- tasks.md: 任务拆解
+- contracts/api-spec.yaml: 接口契约
+- contracts/data-models.yaml: 数据模型定义
+- adrs/001-数据库选型.md: 架构决策记录(adrs)
+
+
 # 修改规则
 - 在你不理解用户意图的时候, 请不停追问用户, 直到你有95%的把握完全理解用户意图
 - 将踩过的坑记录在 `.cursor/rules/pitfalls.mdc`，每条标明时间、原因、解决路线
